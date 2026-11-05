@@ -1,4 +1,4 @@
-import type { SrsCard } from './store';
+import { today, type SrsCard } from './store';
 
 /** Grades: 0 = again (forgot), 1 = hard, 2 = good, 3 = easy. SM-2 variant tuned for vocabulary. */
 export type SrsGrade = 0 | 1 | 2 | 3;
@@ -6,7 +6,7 @@ export type SrsGrade = 0 | 1 | 2 | 3;
 const addDays = (from: string, days: number) => {
   const d = new Date(from + 'T00:00:00');
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return today(d);
 };
 
 export function newCard(todayStr: string): SrsCard {

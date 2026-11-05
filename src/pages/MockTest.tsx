@@ -142,7 +142,11 @@ export default function MockTest() {
       score: l.correct + r.correct,
       total: l.total + r.total,
       band: overall,
-      bands: { listening: lb, reading: rb, ...(wb != null ? { writing: wb } : {}) },
+      bands: {
+        ...(Object.values(lAnswers).some((v) => v.trim()) ? { listening: lb } : {}),
+        ...(Object.values(rAnswers).some((v) => v.trim()) ? { reading: rb } : {}),
+        ...(wb != null && countWords(w1) > 20 && countWords(w2) > 20 ? { writing: wb } : {}),
+      },
     });
     setRes({ l, r, lb, rb, wb, sb, overall, w1b, w2b });
     setStage('results');

@@ -52,6 +52,7 @@ const INFORMAL: [RegExp, string][] = [
 const GRAMMAR: [RegExp, string][] = [
   [/\bin nowadays\b/gi, '"in nowadays" ✗ → "nowadays" or "these days".'],
   [/\bpeople (is|was|has)\b/gi, '"people" is plural → "people are / were / have".'],
+  [/\b(?:many|most|some|young|older|other) people (thinks|believes|says|wants|needs|likes|prefers|feels|argues|claims|spends|uses)\b/gi, '"people" is plural → no "-s" on the verb (people think, people believe).'],
   [/\b(informations|advices|knowledges|equipments|furnitures|researches|evidences|feedbacks|homeworks|vocabularies)\b/gi, 'Uncountable noun — no plural "-s".'],
   [/\bdiscuss about\b/gi, '"discuss about" ✗ → "discuss" (no preposition).'],
   [/\bemphasi[sz]e on\b/gi, '"emphasise on" ✗ → "emphasise" or "put emphasis on".'],

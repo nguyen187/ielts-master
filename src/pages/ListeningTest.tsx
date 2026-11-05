@@ -36,7 +36,7 @@ function ListeningTestInner({ id }: { id: string }) {
     const b = rawToBand('listening', r.correct, r.total);
     setResult(r);
     setBand(b);
-    addAttempt({ kind: 'listening', itemId: section.id, title: `Part ${section.part}: ${section.title}`, score: r.correct, total: r.total, band: b, byType: r.byType });
+    if (Object.values(answers).some((v) => v.trim())) addAttempt({ kind: 'listening', itemId: section.id, title: `Part ${section.part}: ${section.title}`, score: r.correct, total: r.total, band: b, byType: r.byType });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const retry = () => {

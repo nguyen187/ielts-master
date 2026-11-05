@@ -55,7 +55,7 @@ function ReadingTestInner({ id }: { id: string }) {
     setResult(r);
     setBand(b);
     setMode('review');
-    addAttempt({ kind: 'reading', itemId: passage.id, title: passage.title, score: r.correct, total: r.total, band: b, byType: r.byType, minutes: Math.round(timer.elapsed / 60) });
+    if (Object.values(answers).some((v) => v.trim())) addAttempt({ kind: 'reading', itemId: passage.id, title: passage.title, score: r.correct, total: r.total, band: b, byType: r.byType, minutes: Math.round(timer.elapsed / 60) });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 

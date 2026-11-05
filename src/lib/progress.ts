@@ -24,7 +24,7 @@ export function skillSamples(s: AppState, skill: Skill): Sample[] {
   }
   if (skill === 'writing') for (const w of s.writing) if (w.band != null) out.push({ date: w.date, band: w.band, weight: w.source === 'auto' ? 0.5 : 1 });
   if (skill === 'speaking') for (const sp of s.speaking) if (sp.band != null) out.push({ date: sp.date, band: sp.band, weight: 1 });
-  return out.sort((a, b) => a.date.localeCompare(b.date));
+  return out.filter((x) => x.band > 0).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** Weighted mean of the most recent 5 samples, rounded to half band. */

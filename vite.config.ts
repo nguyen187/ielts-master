@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // All study content ships in the main bundle on purpose (~360 kB gzip) so practice works without further requests.
+  build: { chunkSizeWarningLimit: 1500 },
   test: {
     globals: true,
     environment: 'jsdom',
