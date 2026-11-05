@@ -24,6 +24,7 @@ export function useRecorder() {
   const asr = useRef<ReturnType<typeof createRecognizer>>(null);
   const startedAt = useRef(0);
   const base = useRef('');
+  const noWordsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // word-weighted recogniser confidence across every answer recorded with this hook
   const conf = useRef({ sum: 0, words: 0 });
   const [confidence, setConfidence] = useState<number | null>(null);
@@ -38,11 +39,32 @@ export function useRecorder() {
     () => () => {
       rec.current?.cancel();
       asr.current?.stop();
+      if (noWordsTimer.current) clearTimeout(noWordsTimer.current);
     },
     [],
   );
 
+  /** Clear everything about the current answer before the next question. */
+  function reset() {
+    if (noWordsTimer.current) clearTimeout(noWordsTimer.current);
+    noWordsTimer.current = null;
+    if (recording) {
+      asr.current?.stop();
+      asr.current = null;
+      rec.current?.cancel();
+      rec.current = null;
+      setRecording(false);
+    }
+    setTranscript('');
+    setInterim('');
+    setAudioUrl(null);
+    setSeconds(0);
+    setError(null);
+  }
+
   async function start() {
+    if (noWordsTimer.current) clearTimeout(noWordsTimer.current);
+    noWordsTimer.current = null;
     if (IS_ARTIFACT) {
       // claude.ai artifacts cannot use the microphone: the learner speaks through the
       // keyboard's own dictation into the box while we time the answer
@@ -118,7 +140,8 @@ export function useRecorder() {
       setAudioUrl(url);
     }
     // final results can arrive shortly after stop(); if still nothing, tell the learner why
-    setTimeout(() => {
+    noWordsTimer.current = setTimeout(() => {
+      noWordsTimer.current = null;
       setTranscript((t) => {
         if (!t.trim())
           setError(
@@ -135,7 +158,7 @@ export function useRecorder() {
 
   const hasAnswer = !!(transcript.trim() || audioUrl);
   const asrSupported = IS_ARTIFACT ? false : recognitionSupported();
-  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported };
+  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported, reset };
 }
 
 export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: ReturnType<typeof useRecorder>; limit?: number; label?: string }) {

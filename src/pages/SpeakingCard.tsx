@@ -58,7 +58,7 @@ function CardInner({ id }: { id: string }) {
 
   function finishPart2() {
     setP2({ text: r.transcript, seconds: r.seconds, audio: r.audioUrl });
-    r.setTranscript('');
+    r.reset();
     setStage('part3');
     speak(part3Qs[0], rate);
   }
@@ -78,7 +78,7 @@ function CardInner({ id }: { id: string }) {
   function nextP3() {
     const list = [...p3, { q: part3Qs[p3i], text: r.transcript, seconds: r.seconds, audio: r.audioUrl }];
     setP3(list);
-    r.setTranscript('');
+    r.reset();
     if (p3i < part3Qs.length - 1) {
       setP3i(p3i + 1);
       speak(part3Qs[p3i + 1], rate);

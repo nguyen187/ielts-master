@@ -37,7 +37,7 @@ function Part1Inner({ id }: { id: string }) {
     const entry = { q, text: r.transcript, seconds: r.seconds, audio: r.audioUrl };
     const all = [...answers, entry];
     setAnswers(all);
-    r.setTranscript('');
+    r.reset();
     if (qi < topic!.questions.length - 1) setQi(qi + 1);
     else {
       setDone(true);

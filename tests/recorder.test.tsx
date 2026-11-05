@@ -6,7 +6,9 @@ function Harness() {
   return (
     <>
       <RecorderPanel r={r} />
-      <button disabled={r.recording || !r.hasAnswer}>Next</button>
+      <button disabled={r.recording || !r.hasAnswer} onClick={r.reset}>
+        Next
+      </button>
     </>
   );
 }
@@ -51,5 +53,19 @@ describe('RecorderPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: /stop/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
     await waitFor(() => expect(screen.getByText(/recording is saved/i)).toBeInTheDocument(), { timeout: 3000 });
+  });
+
+  it('moving to the next question clears the previous recording, time and messages', async () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /record answer/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /stop/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled());
+    expect(screen.getByLabelText(/your recording/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    expect(screen.queryByLabelText(/your recording/i)).not.toBeInTheDocument();
+    // the delayed "no words recognised" note from the old answer must not appear
+    await new Promise((res) => setTimeout(res, 1400));
+    expect(screen.queryByText(/recording is saved/i)).not.toBeInTheDocument();
   });
 });

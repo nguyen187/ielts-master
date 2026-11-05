@@ -48,7 +48,7 @@ export default function SpeakingMock() {
 
   function go(n: number) {
     setI(n);
-    r.setTranscript('');
+    r.reset();
     const s = steps[n];
     if (!s) return;
     if (s.part === 2) {

@@ -82,7 +82,21 @@ async function runClaude<T>(schema: z.ZodType<T>, prompt: string): Promise<T> {
       }
     }
     if (raw && 'overall' in raw) raw.overall = half(raw.overall);
-    for (const k of ['corrections', 'betterPhrases', 'nextSteps']) if (raw && k in raw && !Array.isArray(raw[k])) raw[k] = [];
+    const arr = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+    if (raw && typeof raw === 'object') {
+      raw.summary = String(raw.summary ?? '');
+      raw.nextSteps = arr(raw.nextSteps).map(String);
+      if (schema === (SpeakingFeedback as unknown))
+        raw.betterPhrases = arr(raw.betterPhrases)
+          .map((x) => ({ said: String(x?.said ?? x?.original ?? ''), better: String(x?.better ?? x?.improved ?? x?.suggestion ?? '') }))
+          .filter((x) => x.said && x.better);
+      if (schema === (WritingFeedback as unknown)) {
+        raw.corrections = arr(raw.corrections)
+          .map((x) => ({ original: String(x?.original ?? ''), corrected: String(x?.corrected ?? x?.correction ?? ''), explanation: String(x?.explanation ?? '') }))
+          .filter((x) => x.original && x.corrected);
+        raw.improvedParagraph = String(raw.improvedParagraph ?? '');
+      }
+    }
     const parsed = schema.safeParse(raw);
     if (!parsed.success) throw new Error('Claude’s answer was incomplete. Press the button to try again.');
     return parsed.data;
