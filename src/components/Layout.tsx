@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useStore, streak } from '../lib/store';
+import { SyncBadge } from './Account';
 
 const NAV: { to: string; label: string; icon: string; group?: string }[] = [
   { to: '/', label: 'Today', icon: '🏠' },
@@ -98,6 +99,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="muted">
               Target {profile.targetBand.toFixed(1)} · 🔥 {st} day streak
             </div>
+            <SyncBadge />
           </div>
         )}
       </aside>

@@ -4,6 +4,8 @@ import type { Module } from '../content/types';
 import { Modal, PageHeader } from '../components/ui';
 import { exportData, importData, resetState, saveProfile, today, updateSettings, useStore, type Profile, type Settings as SettingsT } from '../lib/store';
 import { speak, ttsSupported } from '../lib/speech';
+import { AccountSection } from '../components/Account';
+import { cloudEnabled } from '../lib/cloud';
 
 const BANDS = [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9];
 
@@ -121,7 +123,9 @@ export default function Settings() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Settings" subtitle="Your profile, AI examiner, voice and data. Everything is stored only in this browser." />
+      <PageHeader title="Settings" subtitle={cloudEnabled ? 'Your account, profile, AI examiner, voice and data.' : 'Your profile, AI examiner, voice and data. Everything is stored only in this browser.'} />
+
+      <AccountSection />
 
       <section className="card mb-5 p-5" aria-labelledby="s-profile">
         <h2 id="s-profile" className="h2 mb-4">

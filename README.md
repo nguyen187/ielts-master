@@ -2,14 +2,14 @@
 
 A free, end-to-end IELTS preparation web app. It takes a learner from a placement test to their target band: diagnostic → personalised daily plan → practice in all four skills → full mock tests → band tracking.
 
-All learning content is original. No account or backend is needed; progress is stored in the learner's browser (export/import in Settings).
+All learning content is original. No account is needed: progress is stored in the learner's browser. Optionally, connect Supabase so learners can sign in (email link or Google) and sync progress across devices. See [docs/SUPABASE_SETUP.md](docs/SUPABASE_SETUP.md).
 
 ## Run
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 83 tests: content QA, core logic, page flows
+npm test           # 93 tests: content QA, core logic, sync/merge, page flows
 npm run build      # typecheck + production build in dist/
 ```
 
@@ -49,6 +49,9 @@ src/
   lib/speech.ts         TTS player, speech recognition, recording
   lib/ai.ts             optional Claude examiner (browser, user key)
   lib/store.ts          localStorage state + actions
+  lib/merge.ts          conflict-free merge of two learner states
+  lib/cloud.ts          optional Supabase auth + sync (enabled by VITE_SUPABASE_* env)
+supabase/migrations/    SQL schema with Row Level Security
   components/, pages/   UI (React 19, Tailwind v4)
 tests/
   content.test.ts       content QA gate (ids, numbering, answer keys present in source text)
@@ -61,6 +64,6 @@ tests/
 - Listening audio quality depends on the voices installed in the browser. Chrome, Edge and Safari give the best results.
 - General Training reading has 2 GT long texts; the GT mock fills the third slot with an easier academic passage.
 - Full reading mock has 39 questions (3 × 13) instead of 40; bands are scaled.
-- Data lives in one browser. Use Settings → Export to back it up or move it to another device.
+- Without Supabase configured, data lives in one browser (Settings → Export to back it up). With Supabase, signed-in learners sync across devices.
 
 Not affiliated with the British Council, IDP or Cambridge University Press & Assessment.

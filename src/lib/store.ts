@@ -91,6 +91,10 @@ export interface AppState {
   errorLog: ErrorLogEntry[];
   readGuides: string[];
   settings: Settings;
+  /** when the profile was last edited (for cross-device merge) */
+  profileUpdatedAt?: string;
+  /** ids of deleted error-log entries (tombstones, so sync does not resurrect them) */
+  deletedIds?: string[];
 }
 
 const KEY = 'ielts-master:v1';
@@ -175,7 +179,7 @@ function markActive(s: AppState): AppState {
 }
 
 export function saveProfile(p: Profile) {
-  setState((s) => ({ ...s, profile: p }));
+  setState((s) => ({ ...s, profile: p, profileUpdatedAt: new Date().toISOString() }));
 }
 
 export function addAttempt(a: Omit<Attempt, 'id' | 'date'>) {
@@ -217,7 +221,7 @@ export function addError(e: Omit<ErrorLogEntry, 'id' | 'date'>) {
 }
 
 export function removeError(id: string) {
-  setState((s) => ({ ...s, errorLog: s.errorLog.filter((e) => e.id !== id) }));
+  setState((s) => ({ ...s, errorLog: s.errorLog.filter((e) => e.id !== id), deletedIds: [...(s.deletedIds ?? []), id] }));
 }
 
 export function markGuideRead(id: string) {
