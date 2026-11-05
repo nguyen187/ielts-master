@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createRecognizer, recognitionSupported, startRecording } from '../lib/speech';
 import { analyseSpeech } from '../lib/writingAnalysis';
+import { scoreSpeechAuto } from '../lib/speakingScore';
 import { criteriaBand } from '../lib/scoring';
 import { describeError, gradeSpeaking, type SpeakingFeedback } from '../lib/ai';
 import { BAND_OPTIONS, descriptorFor, speakingDescriptors } from '../content/descriptors';
@@ -22,6 +23,9 @@ export function useRecorder() {
   const asr = useRef<ReturnType<typeof createRecognizer>>(null);
   const startedAt = useRef(0);
   const base = useRef('');
+  // word-weighted recogniser confidence across every answer recorded with this hook
+  const conf = useRef({ sum: 0, words: 0 });
+  const [confidence, setConfidence] = useState<number | null>(null);
 
   useEffect(() => {
     if (!recording) return;
@@ -68,6 +72,11 @@ export function useRecorder() {
             setInterim(int);
           },
           (msg) => setError(msg),
+          (c, w) => {
+            conf.current.sum += c * w;
+            conf.current.words += w;
+            setConfidence(conf.current.sum / conf.current.words);
+          },
         )
       : null;
     asr.current?.start();
@@ -106,7 +115,7 @@ export function useRecorder() {
   }
 
   const hasAnswer = !!(transcript.trim() || audioUrl);
-  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, asrSupported: recognitionSupported() };
+  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported: recognitionSupported() };
 }
 
 export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: ReturnType<typeof useRecorder>; limit?: number; label?: string }) {
@@ -187,10 +196,35 @@ export function SpeechStats({ transcript, seconds }: { transcript: string; secon
 }
 
 /** Self-assessment with descriptors + optional AI examiner. */
-export function SpeakingAssessment({ part, questions, transcript, seconds, onSave }: { part: 1 | 2 | 3; questions: string[]; transcript: string; seconds: number; onSave: (c: SpeakingCriteria, band: number, source: 'self' | 'ai', feedback?: string) => void }) {
+export function SpeakingAssessment({
+  part,
+  questions,
+  transcript,
+  seconds,
+  onSave,
+  confidence,
+  answers,
+}: {
+  part: 1 | 2 | 3;
+  questions: string[];
+  transcript: string;
+  seconds: number;
+  onSave: (c: SpeakingCriteria, band: number, source: 'self' | 'ai' | 'auto', feedback?: string) => void;
+  confidence?: number | null;
+  answers?: number;
+}) {
   const apiKey = useStore((s) => s.settings.apiKey);
-  const [c, setC] = useState<SpeakingCriteria>({ fc: 6, lr: 6, gra: 6, p: 6 });
-  const [saved, setSaved] = useState<null | 'self' | 'ai'>(null);
+  const auto = useMemo(() => scoreSpeechAuto(transcript, seconds, { part, answers, confidence }), [transcript, seconds, part, answers, confidence]);
+  const [c, setC] = useState<SpeakingCriteria>(() => (auto ? { fc: auto.fc.band, lr: auto.lr.band, gra: auto.gra.band, p: auto.p.band } : { fc: 6, lr: 6, gra: 6, p: 6 }));
+  const [saved, setSaved] = useState<null | 'self' | 'ai' | 'auto'>(null);
+  // automatic marking: saved straight away so it counts towards progress; self / AI marking replaces it
+  const autoSaved = useRef(false);
+  useEffect(() => {
+    if (!auto || autoSaved.current) return;
+    autoSaved.current = true;
+    onSave({ fc: auto.fc.band, lr: auto.lr.band, gra: auto.gra.band, p: auto.p.band }, auto.band, 'auto');
+    setSaved('auto');
+  }, [auto, onSave]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [fb, setFb] = useState<SpeakingFeedback | null>(null);
@@ -214,6 +248,7 @@ export function SpeakingAssessment({ part, questions, transcript, seconds, onSav
 
   return (
     <div className="space-y-4">
+      <AutoScoreCard auto={auto} />
       <div className="card p-5">
         <h3 className="h2">Rate yourself with the band descriptors</h3>
         <p className="muted mt-1 text-sm">Listen to your recording, then choose the band whose description fits best. Be strict — examiners are.</p>
@@ -257,7 +292,7 @@ export function SpeakingAssessment({ part, questions, transcript, seconds, onSav
           >
             Save self-assessment
           </button>
-          {saved && <span className="text-sm text-emerald-600">✓ Saved ({saved === 'ai' ? 'AI examiner' : 'self'})</span>}
+          {saved && <span className="text-sm text-emerald-600">✓ Saved ({saved === 'ai' ? 'AI examiner' : saved === 'auto' ? 'automatic' : 'self'})</span>}
         </div>
       </div>
 
@@ -325,6 +360,51 @@ export function SpeakingAssessment({ part, questions, transcript, seconds, onSav
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const CRIT: [keyof SpeakingCriteria, string][] = [
+  ['fc', 'Fluency & Coherence'],
+  ['lr', 'Lexical Resource'],
+  ['gra', 'Grammar Range & Accuracy'],
+  ['p', 'Pronunciation'],
+];
+
+/** Instant automatic band (offline, no key). */
+export function AutoScoreCard({ auto }: { auto: ReturnType<typeof scoreSpeechAuto> }) {
+  if (!auto)
+    return (
+      <div className="card p-5 text-sm">
+        <h3 className="h2">Automatic score</h3>
+        <p className="muted mt-1">Automatic scoring needs a recorded answer with a transcript of at least about 25 words — it measures your speaking speed, vocabulary, grammar and clarity. If no transcript appeared, use Chrome or Edge on a computer. Typed answers can still be rated with the descriptors below or the AI examiner.</p>
+      </div>
+    );
+  return (
+    <div className="card p-5" aria-labelledby="auto-score">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 id="auto-score" className="h2">
+          Automatic score
+        </h3>
+        <BandBadge band={auto.band} label="estimated band" />
+      </div>
+      <p className="muted mt-1 text-xs">
+        Scored instantly on this device from your transcript ({auto.words} words, {auto.wpm} wpm){auto.pronunciationMeasured ? ' and speech-recognition clarity' : ''}. Saved to your progress (counts half as much as an examiner-style rating). Chấm tự động chỉ mang tính tham khảo — kết hợp tự chấm hoặc AI để chính xác hơn.
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {CRIT.map(([k, name]) => (
+          <div key={k} className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/60">
+            <div className="flex items-center justify-between font-semibold">
+              {name} <BandBadge band={auto[k].band} size="sm" />
+            </div>
+            <ul className="mt-2 list-disc space-y-0.5 pl-5">
+              {auto[k].notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ All learning content is original. No account is needed: progress is stored in th
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 93 tests: content QA, core logic, sync/merge, page flows
+npm test           # 101 tests: content QA, core logic, sync/merge, page flows
 npm run build      # typecheck + production build in dist/
 ```
 
@@ -23,7 +23,7 @@ Deploy `dist/` to any static host (Netlify, Vercel, GitHub Pages, S3). Configure
 | Listening | 4 full tests, 16 parts, 160 questions | Browser text-to-speech with a different voice per speaker and accent matching; exam mode (play once, 30 s preview); transcript with answers highlighted |
 | Reading | 12 passages (10 Academic, 2 GT), every question type | 20-minute timer, filters by question type/level, evidence-based explanations, accuracy by question type |
 | Writing | 12 Task 1 (9 Academic charts/process/map, 3 GT letters), 15 Task 2 | SVG chart rendering, timer, autosaved drafts, instant feedback (overview, position, linking, repetition, common Vietnamese-learner errors), self-assessment with descriptors, band 6 vs band 8–9 models with examiner comments, optional AI examiner |
-| Speaking | 24 Part 1 topics, 30 cue cards with Part 3 | Questions read aloud, 1-minute prep + 2-minute timer, recording + playback, live transcript, fluency stats, band 8 samples, self/AI assessment, full speaking mock |
+| Speaking | 24 Part 1 topics, 30 cue cards with Part 3 | Questions read aloud, 1-minute prep + 2-minute timer, recording + playback, live transcript, **automatic offline band per criterion** (no key needed), band 8 samples, self/AI assessment, full speaking mock |
 | Vocabulary | 450 words/phrases, 18 topics, Vietnamese meanings | Spaced-repetition flashcards (SM-2), browse, quiz, pronunciation |
 | Grammar | 16 lessons, 128 exercises | Common Vietnamese-learner mistakes, auto-checked exercises |
 | Guides | 29 strategy guides | Method, traps, worked examples, Vietnamese summary |
@@ -46,6 +46,7 @@ src/
   lib/progress.ts       band estimation from recent results
   lib/srs.ts            spaced repetition
   lib/writingAnalysis.ts offline essay & speech analysis
+  lib/speakingScore.ts  automatic speaking band (fluency, vocabulary, grammar, recogniser clarity)
   lib/speech.ts         TTS player, speech recognition, recording
   lib/ai.ts             optional Claude examiner (browser, user key)
   lib/store.ts          localStorage state + actions

@@ -192,7 +192,7 @@ function CardInner({ id }: { id: string }) {
               ))}
             </div>
           </details>
-          <SpeakingAssessment part={2} questions={[card.prompt, ...card.bullets, ...p3.map((a) => a.q)]} transcript={allText} seconds={allSec} onSave={(criteria, band, source, feedback) => subId && updateSpeaking(subId, { criteria, band, source, feedback })} />
+          <SpeakingAssessment part={2} questions={[card.prompt, ...card.bullets, ...p3.map((a) => a.q)]} transcript={allText} seconds={allSec} confidence={r.confidence} answers={1 + p3.length} onSave={(criteria, band, source, feedback) => subId && updateSpeaking(subId, { criteria, band, source, feedback })} />
         </div>
       )}
     </div>

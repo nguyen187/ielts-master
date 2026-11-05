@@ -23,7 +23,7 @@ export function skillSamples(s: AppState, skill: Skill): Sample[] {
     if (a.kind === 'mock' && a.bands?.[skill] != null) out.push({ date: a.date, band: a.bands[skill]!, weight: 2 });
   }
   if (skill === 'writing') for (const w of s.writing) if (w.band != null) out.push({ date: w.date, band: w.band, weight: w.source === 'auto' ? 0.5 : 1 });
-  if (skill === 'speaking') for (const sp of s.speaking) if (sp.band != null) out.push({ date: sp.date, band: sp.band, weight: 1 });
+  if (skill === 'speaking') for (const sp of s.speaking) if (sp.band != null) out.push({ date: sp.date, band: sp.band, weight: sp.source === 'auto' ? 0.5 : 1 });
   return out.filter((x) => x.band > 0).sort((a, b) => a.date.localeCompare(b.date));
 }
 

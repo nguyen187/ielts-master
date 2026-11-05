@@ -41,7 +41,7 @@ export interface SpeakingSubmission {
   seconds: number;
   criteria?: { fc: number; lr: number; gra: number; p: number };
   band?: number;
-  source?: 'self' | 'ai';
+  source?: 'self' | 'ai' | 'auto';
   feedback?: string;
 }
 

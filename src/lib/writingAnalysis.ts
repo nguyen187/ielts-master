@@ -78,7 +78,7 @@ function sentencesOf(text: string) {
     .filter((s) => s.split(/\s+/).length >= 2);
 }
 
-function mattr(tokens: string[], window = 50) {
+export function mattr(tokens: string[], window = 50) {
   if (tokens.length < window) return tokens.length ? new Set(tokens).size / tokens.length : 0;
   let sum = 0;
   let n = 0;
@@ -199,6 +199,5 @@ export function analyseSpeech(transcript: string, seconds: number) {
   if (wpm > 190) tips.push(`Very fast (${wpm} wpm) — slow down slightly so pronunciation stays clear.`);
   if (tokens.length && fillers / tokens.length > 0.05) tips.push(`Many fillers (${fillers}). Replace "um/uh" with natural fillers: "Well, …", "Let me think…", "That's an interesting question".`);
   if (ld < 0.6 && tokens.length > 60) tips.push('Vocabulary range seems narrow — use the topic phrases listed with the cue card.');
-  if (found.length < 2 && tokens.length > 60) tips.push('Use more discourse markers: "Actually", "What I mean is", "On the other hand", "The thing is".');
   return { words: tokens.length, wpm, fillers, lexicalDiversity: Math.round(ld * 100) / 100, linkers: found, tips };
 }

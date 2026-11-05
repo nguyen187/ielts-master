@@ -128,7 +128,7 @@ interface RecognitionLike {
   interimResults: boolean;
   start: () => void;
   stop: () => void;
-  onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string; confidence?: number } }> }) => void) | null;
   onend: (() => void) | null;
   onerror: ((e: { error: string }) => void) | null;
 }
@@ -149,6 +149,7 @@ const FATAL_ASR: Record<string, string> = {
 export function createRecognizer(
   onText: (finalText: string, interim: string) => void,
   onFatal?: (message: string) => void,
+  onConfidence?: (confidence: number, words: number) => void,
 ): { start: () => void; stop: () => void } | null {
   const w = window as unknown as Record<string, new () => RecognitionLike>;
   const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
@@ -163,7 +164,12 @@ export function createRecognizer(
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const res = e.results[i];
-      if (res.isFinal) finalText += res[0].transcript.trim() + ' ';
+      if (res.isFinal) {
+        finalText += res[0].transcript.trim() + ' ';
+        const c = res[0].confidence;
+        // some browsers report 0 when they have no estimate — ignore those
+        if (c && c > 0) onConfidence?.(c, res[0].transcript.trim().split(/\s+/).length);
+      }
       else interim += res[0].transcript;
     }
     onText(finalText.trim(), interim);

@@ -95,7 +95,7 @@ function Part1Inner({ id }: { id: string }) {
             <h2 className="h2">Band 8 sample — &ldquo;{topic.questions[0]}&rdquo;</h2>
             <p className="mt-2 text-sm leading-7">{topic.sample}</p>
           </div>
-          <SpeakingAssessment part={1} questions={topic.questions} transcript={transcript} seconds={seconds} onSave={(criteria, band, source, feedback) => subId && updateSpeaking(subId, { criteria, band, source, feedback })} />
+          <SpeakingAssessment part={1} questions={topic.questions} transcript={transcript} seconds={seconds} confidence={r.confidence} answers={answers.length} onSave={(criteria, band, source, feedback) => subId && updateSpeaking(subId, { criteria, band, source, feedback })} />
           <Link to="/speaking" className="btn-secondary">
             ← More topics
           </Link>

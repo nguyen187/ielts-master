@@ -140,6 +140,8 @@ export default function SpeakingMock() {
             questions={steps.map((s) => s.q)}
             transcript={transcript}
             seconds={seconds}
+            confidence={r.confidence}
+            answers={answers.length}
             onSave={(criteria, band, source, feedback) => {
               if (subId) updateSpeaking(subId, { criteria, band, source, feedback });
             }}
