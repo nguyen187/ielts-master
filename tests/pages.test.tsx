@@ -95,10 +95,11 @@ describe('speaking (no microphone / speech APIs in test env)', () => {
     const t = speakingPart1[0];
     renderAt(`/speaking/part1/${t.id}`);
     for (let i = 0; i < t.questions.length; i++) {
+      await screen.findByText(new RegExp(`Question ${i + 1} of`));
       fireEvent.change(screen.getByLabelText(/Transcript/), { target: { value: 'I am a student and I really enjoy learning about computers because they are useful.' } });
       fireEvent.click(screen.getByRole('button', { name: i < t.questions.length - 1 ? /Next question/ : /Finish/ }));
     }
-    expect(screen.getByText(/Band 8 sample/)).toBeInTheDocument();
+    expect(await screen.findByText(/Band 8 sample/)).toBeInTheDocument();
     expect(getState().speaking).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: /Save self-assessment/ }));
     expect(getState().speaking[0].band).toBe(6);
@@ -117,5 +118,16 @@ describe('robustness', () => {
       expect(within(container).getAllByRole('heading').length, path).toBeGreaterThan(0);
       unmount();
     }
+  });
+});
+
+describe('speaking navigation', () => {
+  it('Next is never stuck: an unanswered question can be skipped', async () => {
+    const t = speakingPart1[0];
+    renderAt(`/speaking/part1/${t.id}`);
+    const skip = screen.getByRole('button', { name: /Skip question/ });
+    expect(skip).toBeEnabled();
+    fireEvent.click(skip);
+    expect(await screen.findByText(/Question 2 of/)).toBeInTheDocument();
   });
 });

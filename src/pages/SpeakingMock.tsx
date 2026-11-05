@@ -57,8 +57,9 @@ export default function SpeakingMock() {
     } else speak(s.q, rate);
   }
 
-  function next() {
-    const list = [...answers, { step, text: r.transcript, seconds: r.seconds, audio: r.audioUrl }];
+  async function next() {
+    const a = await r.finish();
+    const list = [...answers, { step, ...a }];
     setAnswers(list);
     if (i + 1 >= steps.length) {
       const sub = addSpeaking({ itemId: `mock-${t1.id}-${card.id}`, part: 2, transcript: list.map((a) => `[Part ${a.step.part}] ${a.step.q}\n${a.text}`).join('\n\n'), seconds: list.reduce((a, x) => a + x.seconds, 0) });
@@ -113,8 +114,8 @@ export default function SpeakingMock() {
             <RecorderPanel r={r} limit={step.limit} />
           )}
           <div className="flex justify-end">
-            <button className="btn-primary" disabled={prepping || r.recording || !r.hasAnswer} onClick={next}>
-              {i + 1 >= steps.length ? 'Finish test' : 'Next →'}
+            <button className="btn-primary" disabled={prepping} onClick={() => void next()}>
+              {i + 1 >= steps.length ? 'Finish test' : !r.recording && !r.hasAnswer ? 'Skip question →' : 'Next →'}
             </button>
           </div>
         </div>

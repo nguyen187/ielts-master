@@ -56,8 +56,8 @@ function CardInner({ id }: { id: string }) {
 
   const part3Qs = card.part3.slice(0, 4);
 
-  function finishPart2() {
-    setP2({ text: r.transcript, seconds: r.seconds, audio: r.audioUrl });
+  async function finishPart2() {
+    setP2(await r.finish());
     r.reset();
     setStage('part3');
     speak(part3Qs[0], rate);
@@ -75,8 +75,8 @@ function CardInner({ id }: { id: string }) {
     setStage('results');
   }
 
-  function nextP3() {
-    const list = [...p3, { q: part3Qs[p3i], text: r.transcript, seconds: r.seconds, audio: r.audioUrl }];
+  async function nextP3() {
+    const list = [...p3, { q: part3Qs[p3i], ...(await r.finish()) }];
     setP3(list);
     r.reset();
     if (p3i < part3Qs.length - 1) {
@@ -125,7 +125,7 @@ function CardInner({ id }: { id: string }) {
           {notes && <div className="muted whitespace-pre-line rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800/60">{notes}</div>}
           <p className="text-sm font-semibold">Speak now — recording stops automatically at 2:00.</p>
           <RecorderPanel r={r} limit={120} label="Start speaking" />
-          <button className="btn-primary" disabled={r.recording || !r.hasAnswer} onClick={finishPart2}>
+          <button className="btn-primary" onClick={() => void finishPart2()}>
             Continue to Part 3 →
           </button>
         </div>
@@ -144,10 +144,16 @@ function CardInner({ id }: { id: string }) {
           </div>
           <RecorderPanel r={r} limit={90} />
           <div className="flex justify-between">
-            <button className="btn-ghost" onClick={() => finishAll()}>
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                r.reset();
+                finishAll();
+              }}
+            >
               Skip remaining Part 3
             </button>
-            <button className="btn-primary" disabled={r.recording || !r.hasAnswer} onClick={nextP3}>
+            <button className="btn-primary" onClick={() => void nextP3()}>
               {p3i < part3Qs.length - 1 ? 'Next question →' : 'Finish'}
             </button>
           </div>

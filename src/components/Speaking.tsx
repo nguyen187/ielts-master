@@ -25,6 +25,8 @@ export function useRecorder() {
   const startedAt = useRef(0);
   const base = useRef('');
   const noWordsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // bumps on every new answer / reset so late speech results never leak into the next question
+  const answerId = useRef(0);
   // word-weighted recogniser confidence across every answer recorded with this hook
   const conf = useRef({ sum: 0, words: 0 });
   const [confidence, setConfidence] = useState<number | null>(null);
@@ -44,8 +46,33 @@ export function useRecorder() {
     [],
   );
 
+  /**
+   * The current answer, stopping first if still recording — so "Next" never waits for a separate
+   * Stop / Done press. Returns the values directly because state updates land after this call.
+   */
+  async function finish(): Promise<{ text: string; seconds: number; audio: string | null }> {
+    if (!recording) return { text: transcript.trim(), seconds, audio: audioUrl };
+    const secs = Math.round((Date.now() - startedAt.current) / 1000);
+    setRecording(false);
+    setSeconds(secs);
+    if (IS_ARTIFACT) return { text: transcript.trim(), seconds: secs, audio: null };
+    asr.current?.stop();
+    asr.current = null;
+    const text = (interim ? `${transcript} ${interim}` : transcript).trim();
+    setTranscript(text);
+    setInterim('');
+    let url: string | null = null;
+    if (rec.current) {
+      url = await rec.current.stop();
+      rec.current = null;
+      setAudioUrl(url);
+    }
+    return { text, seconds: secs, audio: url };
+  }
+
   /** Clear everything about the current answer before the next question. */
   function reset() {
+    answerId.current++;
     if (noWordsTimer.current) clearTimeout(noWordsTimer.current);
     noWordsTimer.current = null;
     if (recording) {
@@ -101,9 +128,11 @@ export function useRecorder() {
       return;
     }
     if (!rec.current) setError('Audio playback is not available in this browser, but the live transcript still works.');
+    const id = ++answerId.current;
     asr.current = recognitionSupported()
       ? createRecognizer(
           (finalText, int) => {
+            if (id !== answerId.current) return;
             setTranscript(finalText);
             setInterim(int);
           },
@@ -158,7 +187,7 @@ export function useRecorder() {
 
   const hasAnswer = !!(transcript.trim() || audioUrl);
   const asrSupported = IS_ARTIFACT ? false : recognitionSupported();
-  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported, reset };
+  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported, reset, finish };
 }
 
 export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: ReturnType<typeof useRecorder>; limit?: number; label?: string }) {

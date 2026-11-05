@@ -33,8 +33,8 @@ function Part1Inner({ id }: { id: string }) {
   const transcript = answers.map((a) => a.text).join(' ');
   const seconds = answers.reduce((a, x) => a + x.seconds, 0);
 
-  function nextQuestion() {
-    const entry = { q, text: r.transcript, seconds: r.seconds, audio: r.audioUrl };
+  async function nextQuestion() {
+    const entry = { q, ...(await r.finish()) };
     const all = [...answers, entry];
     setAnswers(all);
     r.reset();
@@ -62,8 +62,8 @@ function Part1Inner({ id }: { id: string }) {
           </div>
           <RecorderPanel r={r} limit={60} />
           <div className="flex justify-end">
-            <button className="btn-primary" disabled={r.recording || !r.hasAnswer} onClick={nextQuestion}>
-              {qi < topic.questions.length - 1 ? 'Next question →' : 'Finish'}
+            <button className="btn-primary" onClick={() => void nextQuestion()}>
+              {qi < topic.questions.length - 1 ? (!r.recording && !r.hasAnswer ? 'Skip question →' : 'Next question →') : 'Finish'}
             </button>
           </div>
           <details className="text-sm">
