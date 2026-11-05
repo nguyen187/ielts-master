@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { cloudEnabled, deleteCloudData, signInWithEmail, signInWithGoogle, signOut, syncNow, useCloud, type SyncStatus } from '../lib/cloud';
+import { cloudEnabled, deleteCloudData, googleEnabled, signInWithEmail, signInWithGoogle, signOut, syncNow, useCloud, type SyncStatus } from '../lib/cloud';
 
 const LABEL: Record<SyncStatus, string> = {
   disabled: 'Local only',
@@ -39,6 +39,16 @@ export function AccountSection() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [google, setGoogle] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void googleEnabled().then((v) => {
+      if (alive) setGoogle(v);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const run = async (f: () => Promise<void>) => {
     setBusy(true);
@@ -124,9 +134,11 @@ export function AccountSection() {
               </button>
             </form>
           )}
-          <button className="btn-secondary" disabled={busy} onClick={() => void run(signInWithGoogle)}>
-            Continue with Google
-          </button>
+          {google && (
+            <button className="btn-secondary" disabled={busy} onClick={() => void run(signInWithGoogle)}>
+              Continue with Google
+            </button>
+          )}
           {err && <p className="text-rose-600">{err}</p>}
         </div>
       )}

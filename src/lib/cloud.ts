@@ -174,6 +174,17 @@ export async function signInWithEmail(email: string) {
   if (error) throw error;
 }
 
+let googlePromise: Promise<boolean> | null = null;
+/** Whether the Google provider is enabled in this Supabase project (public auth settings). */
+export function googleEnabled(): Promise<boolean> {
+  if (!cloudEnabled) return Promise.resolve(false);
+  googlePromise ??= fetch(`${URL}/auth/v1/settings`, { headers: { apikey: KEY! } })
+    .then((r) => r.json())
+    .then((s: { external?: Record<string, boolean> }) => !!s.external?.google)
+    .catch(() => false);
+  return googlePromise;
+}
+
 export async function signInWithGoogle() {
   const sb = supabase();
   if (!sb) throw new Error('Cloud sync is not configured.');
