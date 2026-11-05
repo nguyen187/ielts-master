@@ -45,16 +45,30 @@ export function useRecorder() {
     setAudioUrl(null);
     try {
       rec.current = await startRecording();
-    } catch {
+    } catch (e) {
+      // Permission denied / no microphone: don't enter "recording" mode, so the box stays editable
       rec.current = null;
-      setError('Microphone access was blocked. You can still type what you said below.');
+      const name = e instanceof DOMException ? e.name : '';
+      setError(
+        name === 'NotFoundError'
+          ? 'No microphone was found. Type what you said in the box below instead.'
+          : 'Microphone access was blocked. Allow the microphone (lock icon next to the address bar) and try again, or type what you said below.',
+      );
+      return;
     }
-    if (!rec.current && !error) setError((e) => e ?? 'Recording is not available in this browser. Type what you said below instead.');
+    if (!rec.current && !recognitionSupported()) {
+      setError('Recording is not available in this browser. Type what you said in the box below instead.');
+      return;
+    }
+    if (!rec.current) setError('Audio playback is not available in this browser, but the live transcript still works.');
     asr.current = recognitionSupported()
-      ? createRecognizer((finalText, int) => {
-          setTranscript(finalText);
-          setInterim(int);
-        })
+      ? createRecognizer(
+          (finalText, int) => {
+            setTranscript(finalText);
+            setInterim(int);
+          },
+          (msg) => setError(msg),
+        )
       : null;
     asr.current?.start();
     startedAt.current = Date.now();

@@ -138,7 +138,18 @@ export function recognitionSupported() {
   return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
 }
 
-export function createRecognizer(onText: (finalText: string, interim: string) => void): { start: () => void; stop: () => void } | null {
+const FATAL_ASR: Record<string, string> = {
+  'not-allowed': 'Microphone access was blocked, so there is no live transcript. Type what you said instead.',
+  'service-not-allowed': 'Live transcript is not allowed in this browser. Type what you said instead.',
+  'audio-capture': 'No microphone was found. Type what you said instead.',
+  network: 'Live transcript needs an internet connection (it uses the browser’s online speech service). Type what you said instead.',
+  'language-not-supported': 'This browser cannot transcribe English here. Type what you said instead.',
+};
+
+export function createRecognizer(
+  onText: (finalText: string, interim: string) => void,
+  onFatal?: (message: string) => void,
+): { start: () => void; stop: () => void } | null {
   const w = window as unknown as Record<string, new () => RecognitionLike>;
   const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
   if (!Ctor) return null;
@@ -166,7 +177,13 @@ export function createRecognizer(onText: (finalText: string, interim: string) =>
       }
     }
   };
-  r.onerror = () => undefined;
+  // 'no-speech' and 'aborted' are normal (silence / stop); anything else would loop forever via onend
+  r.onerror = (e) => {
+    const msg = FATAL_ASR[e.error];
+    if (!msg) return;
+    active = false;
+    onFatal?.(msg);
+  };
   return {
     start: () => {
       active = true;
@@ -179,7 +196,11 @@ export function createRecognizer(onText: (finalText: string, interim: string) =>
     },
     stop: () => {
       active = false;
-      r.stop();
+      try {
+        r.stop();
+      } catch {
+        /* not started */
+      }
     },
   };
 }
