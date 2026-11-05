@@ -22,10 +22,18 @@ function useTheme() {
   const theme = useStore((s) => s.settings.theme);
   useEffect(() => {
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
-    const apply = () => document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && !!mq?.matches));
+    // on claude.ai the viewer's explicit theme arrives as data-theme on <html>
+    const host = () => document.documentElement.getAttribute('data-theme');
+    const apply = () =>
+      document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && (host() ? host() === 'dark' : !!mq?.matches)));
     apply();
     mq?.addEventListener?.('change', apply);
-    return () => mq?.removeEventListener?.('change', apply);
+    const obs = new MutationObserver(apply);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => {
+      mq?.removeEventListener?.('change', apply);
+      obs.disconnect();
+    };
   }, [theme]);
 }
 

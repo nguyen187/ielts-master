@@ -6,11 +6,13 @@ import { createClient, type Session, type SupabaseClient } from '@supabase/supab
 import { useSyncExternalStore } from 'react';
 import { getState, resetState, subscribe, type AppState } from './store';
 import { cloudCopy, mergeStates } from './merge';
+import { IS_ARTIFACT } from './artifact';
 
 const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-export const cloudEnabled = !!(URL && KEY);
+// the claude.ai artifact cannot reach Supabase (network is blocked there); it saves through its own store
+export const cloudEnabled = !!(URL && KEY) && !IS_ARTIFACT;
 let client: SupabaseClient | null = null;
 export function supabase(): SupabaseClient | null {
   if (!cloudEnabled) return null;

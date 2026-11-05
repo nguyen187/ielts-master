@@ -11,7 +11,8 @@
     "typecheck:content": "tsc --noEmit -p tsconfig.content.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "validate:content": "vitest run tests/content.test.ts"
+    "validate:content": "vitest run tests/content.test.ts",
+    "build:artifact": "tsc --noEmit && VITE_TARGET=artifact BASE_PATH=./ vite build --outDir dist-artifact && node scripts/build-artifact.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

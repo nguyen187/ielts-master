@@ -7,7 +7,7 @@ import { BandBadge, Empty, PageHeader, ProgressBar, Stat, Tabs, TimerBadge, fmtT
 import { VisualView, describeVisual } from '../components/Visual';
 import { analyseEssay, type Issue } from '../lib/writingAnalysis';
 import { countWords, criteriaBand } from '../lib/scoring';
-import { describeError, gradeWriting, type WritingFeedback } from '../lib/ai';
+import { describeError, gradeWriting, useAiAvailable, type WritingFeedback } from '../lib/ai';
 import { addError, addWriting, updateWriting, useStore, type WritingSubmission } from '../lib/store';
 import { CriteriaAssess } from './Descriptors';
 import { writingTypeLabel } from './WritingList';
@@ -343,6 +343,7 @@ function WriteStage(props: {
 function Feedback({ task, sub, onAgain }: { task: WritingTaskT; sub: WritingSubmission; onAgain: () => void }) {
   const a = useMemo(() => analyseEssay(sub.text, task.task, task.prompt, task.module), [sub.text, task]);
   const apiKey = useStore((s) => s.settings.apiKey);
+  const ai = useAiAvailable();
   const [crit, setCrit] = useState<WCrit>(() => (sub.criteria && sub.source !== 'auto' ? sub.criteria : { tr: 6, cc: 6, lr: 6, gra: 6 }));
   const [savedSelf, setSavedSelf] = useState(false);
   const [logged, setLogged] = useState<Set<string>>(new Set());
@@ -504,9 +505,13 @@ function Feedback({ task, sub, onAgain }: { task: WritingTaskT; sub: WritingSubm
         <h2 id="ai-h" className="h2">
           🤖 AI examiner
         </h2>
-        {apiKey ? (
+        {ai.available ? (
           <>
-            <p className="muted mb-3 text-sm">Get a criterion-by-criterion assessment, corrections and an improved paragraph. Uses your own Anthropic API key; the essay is sent directly from your browser to Anthropic.</p>
+            <p className="muted mb-3 text-sm">
+              {ai.via === 'claude'
+                ? 'Claude assesses your essay criterion by criterion, corrects your errors and rewrites your weakest paragraph. It runs on your own Claude account (you will be asked to allow it the first time) — no API key needed.'
+                : 'Get a criterion-by-criterion assessment, corrections and an improved paragraph. Uses your own Anthropic API key; the essay is sent directly from your browser to Anthropic.'}
+            </p>
             <button className="btn-primary" onClick={runAi} disabled={aiLoading}>
               {aiLoading ? 'Assessing… (this can take a minute)' : fb ? 'Ask the AI examiner again' : 'Ask the AI examiner'}
             </button>
@@ -516,6 +521,12 @@ function Feedback({ task, sub, onAgain }: { task: WritingTaskT; sub: WritingSubm
               </p>
             )}
           </>
+        ) : ai.via === 'claude' ? (
+          <p className="muted text-sm">
+            {ai.state === 'checking'
+              ? 'Connecting to Claude…'
+              : 'Claude grading is available when you open this page on claude.ai and allow it to use Claude. Meanwhile, use the instant feedback and the band descriptors above.'}
+          </p>
         ) : (
           <p className="text-sm">
             The AI examiner uses <strong>your own Anthropic API key</strong>, which is stored only on this device and sent directly to Anthropic — never to us.{' '}

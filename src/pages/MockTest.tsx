@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listeningTests, readingPassages, writingTasks } from '../content';
 import type { ListeningTest, QuestionGroup, ReadingPassage, WritingTask } from '../content/types';
-import { BandBadge, PageHeader, TimerBadge, useTimer, Tabs, SKILL_META } from '../components/ui';
+import { BandBadge, Modal, PageHeader, TimerBadge, useTimer, Tabs, SKILL_META } from '../components/ui';
 import { QuestionGroups } from '../components/Questions';
 import { ListeningPlayer, Transcript } from '../components/ListeningPlayer';
 import { VisualView } from '../components/Visual';
@@ -75,6 +75,7 @@ export default function MockTest() {
   const history = useStore((s) => s.attempts);
   const set = useMemo(() => pickMock(module, history.filter((a) => a.kind === 'mock' || a.kind === 'listening' || a.kind === 'reading')), [module]); // eslint-disable-line react-hooks/exhaustive-deps
   const [stage, setStage] = useState<Stage>('intro');
+  const [ask, setAsk] = useState<null | 'reading' | 'submit'>(null);
   const [includeWriting, setIncludeWriting] = useState(true);
   const [secIdx, setSecIdx] = useState(0);
   const [lAnswers, setLAnswers] = useState<Record<string, string>>({});
@@ -298,7 +299,7 @@ export default function MockTest() {
         {stage === 'reading' && (
           <>
             <TimerBadge remaining={readTimer.remaining} elapsed={readTimer.elapsed} />
-            <button className="btn-primary" onClick={() => window.confirm('Finish Reading now?') && endReading()}>
+            <button className="btn-primary" onClick={() => setAsk('reading')}>
               Finish Reading
             </button>
           </>
@@ -306,12 +307,31 @@ export default function MockTest() {
         {stage === 'writing' && (
           <>
             <TimerBadge remaining={writeTimer.remaining} elapsed={writeTimer.elapsed} />
-            <button className="btn-primary" onClick={() => window.confirm('Submit the whole test?') && finish()}>
+            <button className="btn-primary" onClick={() => setAsk('submit')}>
               Submit test
             </button>
           </>
         )}
       </div>
+      <Modal open={ask !== null} onClose={() => setAsk(null)} title={ask === 'reading' ? 'Finish Reading now?' : 'Submit the whole test?'}>
+        <p className="mb-4 text-sm">{ask === 'reading' ? 'You cannot come back to the Reading section after this.' : 'Your answers will be marked and you cannot change them afterwards.'}</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="btn-primary"
+            onClick={() => {
+              const a = ask;
+              setAsk(null);
+              if (a === 'reading') endReading();
+              else finish();
+            }}
+          >
+            {ask === 'reading' ? 'Finish Reading' : 'Submit test'}
+          </button>
+          <button className="btn-ghost" onClick={() => setAsk(null)}>
+            Keep working
+          </button>
+        </div>
+      </Modal>
 
       {stage === 'listening' && (
         <div className="space-y-4">

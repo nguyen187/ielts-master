@@ -11,6 +11,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm test           # 101 tests: content QA, core logic, sync/merge, page flows
 npm run build      # typecheck + production build in dist/
+npm run build:artifact  # single-file claude.ai Artifact build in dist-artifact/ielts-master.html
 ```
 
 Deploy `dist/` to any static host (Netlify, Vercel, GitHub Pages, S3). Configure an SPA fallback so unknown paths serve `index.html`.
@@ -32,6 +33,9 @@ Deploy `dist/` to any static host (Netlify, Vercel, GitHub Pages, S3). Configure
 
 ### AI examiner (optional)
 Writing and Speaking can be graded by Claude (`claude-opus-5-5`) with structured, criterion-by-criterion feedback. Learners paste **their own** Anthropic API key in Settings. The key stays in `localStorage`, and requests go straight from the browser to the Anthropic API. Without a key, everything else still works.
+
+### claude.ai Artifact edition
+`npm run build:artifact` produces one self-contained page for claude.ai. There, Writing and Speaking are graded by Claude on the **learner's own Claude account** (no API key; the page asks once for permission), and each learner's progress is saved privately in the artifact's database (`progress/{self}`). Artifacts cannot use the microphone, so Speaking uses the keyboard's dictation while the app times the answer. Supabase sync is disabled in this build.
 
 ## Architecture
 

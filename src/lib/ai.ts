@@ -5,6 +5,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
+import { IS_ARTIFACT, claudeSample, describeSampleError, isSampleError, markClaudeDenied, useClaudeAi } from './artifact';
+import { useStore } from './store';
 
 const MODEL = 'claude-opus-5-5';
 
@@ -45,7 +47,64 @@ function client(apiKey: string) {
   return new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
 }
 
+/** JSON shapes spelled out for the artifact path, where Claude answers in plain JSON. */
+const CRIT_SHAPE = '{"band": number (0-9, steps of 0.5), "strengths": [string], "weaknesses": [string]}';
+const SHAPES = new Map<z.ZodTypeAny, string>([
+  [
+    WritingFeedback,
+    `{"tr": CRIT, "cc": CRIT, "lr": CRIT, "gra": CRIT, "overall": number, "summary": "2-3 sentence verdict", "corrections": [{"original": "exact quote", "corrected": string, "explanation": string}] (up to 10), "nextSteps": [3 concrete actions], "improvedParagraph": "the weakest paragraph rewritten about one band higher"}
+where tr = Task Achievement (Task 1) or Task Response (Task 2), cc = Coherence and Cohesion, lr = Lexical Resource, gra = Grammatical Range and Accuracy, and CRIT = ${CRIT_SHAPE}`,
+  ],
+  [
+    SpeakingFeedback,
+    `{"fc": CRIT, "lr": CRIT, "gra": CRIT, "p": CRIT, "overall": number, "summary": string, "betterPhrases": [{"said": "exact words the candidate used", "better": string}] (up to 8), "nextSteps": [3 concrete actions]}
+where fc = Fluency and Coherence, lr = Lexical Resource, gra = Grammatical Range and Accuracy, p = Pronunciation (judged only from transcript evidence; say so), and CRIT = ${CRIT_SHAPE}`,
+  ],
+]);
+
+const half = (x: unknown) => Math.max(0, Math.min(9, Math.round(Number(x) * 2) / 2));
+
+async function runClaude<T>(schema: z.ZodType<T>, prompt: string): Promise<T> {
+  const sample = claudeSample();
+  if (!sample) throw new Error('Claude is not available on this page.');
+  try {
+    const raw = await sample.json<Record<string, unknown>>(
+      `${SYSTEM}\n\n${prompt}\n\nReply with only one JSON object of exactly this shape, no other text:\n${SHAPES.get(schema as z.ZodTypeAny)}`,
+      { modelTier: 'complex' },
+    );
+    // tolerate small slips (band as string, missing arrays) before validating
+    for (const k of ['tr', 'cc', 'lr', 'gra', 'fc', 'p']) {
+      const c = raw?.[k] as Record<string, unknown> | undefined;
+      if (c && typeof c === 'object') {
+        c.band = half(c.band);
+        c.strengths = Array.isArray(c.strengths) ? c.strengths.map(String) : [];
+        c.weaknesses = Array.isArray(c.weaknesses) ? c.weaknesses.map(String) : [];
+      }
+    }
+    if (raw && 'overall' in raw) raw.overall = half(raw.overall);
+    for (const k of ['corrections', 'betterPhrases', 'nextSteps']) if (raw && k in raw && !Array.isArray(raw[k])) raw[k] = [];
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) throw new Error('Claude’s answer was incomplete. Press the button to try again.');
+    return parsed.data;
+  } catch (e) {
+    if (isSampleError(e)) {
+      if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(e.code)) markClaudeDenied();
+      throw new Error(describeSampleError(e));
+    }
+    throw e;
+  }
+}
+
+/** Whether AI grading can run here: Claude in the artifact build, the learner's key elsewhere. */
+export function useAiAvailable(): { available: boolean; via: 'claude' | 'key'; state?: string } {
+  const apiKey = useStore((s) => s.settings.apiKey);
+  const claude = useClaudeAi();
+  if (IS_ARTIFACT) return { available: claude === 'ready', via: 'claude', state: claude };
+  return { available: !!apiKey, via: 'key' };
+}
+
 async function run<T>(apiKey: string, schema: z.ZodType<T>, prompt: string): Promise<T> {
+  if (IS_ARTIFACT) return runClaude(schema, prompt);
   const res = await client(apiKey).beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,

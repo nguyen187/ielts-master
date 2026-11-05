@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { createRecognizer, recognitionSupported, startRecording } from '../lib/speech';
 import { analyseSpeech } from '../lib/writingAnalysis';
 import { scoreSpeechAuto } from '../lib/speakingScore';
+import { IS_ARTIFACT } from '../lib/artifact';
 import { criteriaBand } from '../lib/scoring';
-import { describeError, gradeSpeaking, type SpeakingFeedback } from '../lib/ai';
+import { describeError, gradeSpeaking, useAiAvailable, type SpeakingFeedback } from '../lib/ai';
 import { BAND_OPTIONS, descriptorFor, speakingDescriptors } from '../content/descriptors';
 import { useStore } from '../lib/store';
 import { BandBadge } from './ui';
@@ -42,6 +43,19 @@ export function useRecorder() {
   );
 
   async function start() {
+    if (IS_ARTIFACT) {
+      // claude.ai artifacts cannot use the microphone: the learner speaks through the
+      // keyboard's own dictation into the box while we time the answer
+      setError(null);
+      setInterim('');
+      setTranscript('');
+      setAudioUrl(null);
+      startedAt.current = Date.now();
+      setSeconds(0);
+      setRecording(true);
+      setTimeout(() => document.getElementById('transcript')?.focus(), 0);
+      return;
+    }
     setError(null);
     setInterim('');
     base.current = '';
@@ -87,6 +101,11 @@ export function useRecorder() {
 
   async function stop() {
     if (!recording) return;
+    if (IS_ARTIFACT) {
+      setRecording(false);
+      setSeconds(Math.round((Date.now() - startedAt.current) / 1000));
+      return;
+    }
     setRecording(false);
     asr.current?.stop();
     asr.current = null;
@@ -115,7 +134,8 @@ export function useRecorder() {
   }
 
   const hasAnswer = !!(transcript.trim() || audioUrl);
-  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported: recognitionSupported() };
+  const asrSupported = IS_ARTIFACT ? false : recognitionSupported();
+  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, confidence, asrSupported };
 }
 
 export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: ReturnType<typeof useRecorder>; limit?: number; label?: string }) {
@@ -127,11 +147,11 @@ export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: Return
       <div className="flex flex-wrap items-center gap-3">
         {!r.recording ? (
           <button className="btn-primary" onClick={() => void r.start()}>
-            🎙️ {r.audioUrl || r.transcript ? 'Record again' : label}
+            🎙️ {r.audioUrl || r.transcript ? (IS_ARTIFACT ? 'Answer again' : 'Record again') : IS_ARTIFACT ? 'Start answering' : label}
           </button>
         ) : (
           <button className="btn-danger" onClick={() => void r.stop()}>
-            ■ Stop
+            ■ {IS_ARTIFACT ? 'Done' : 'Stop'}
           </button>
         )}
         {r.recording && (
@@ -143,18 +163,24 @@ export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: Return
         {r.audioUrl && !r.recording && <audio controls src={r.audioUrl} className="h-9 max-w-full" aria-label="Your recording" />}
       </div>
       {r.error && <p className="text-sm text-amber-700 dark:text-amber-400">{r.error}</p>}
-      {!r.asrSupported && <p className="muted text-xs">Live transcript needs Chrome, Edge or Safari. You can type or paste what you said instead.</p>}
+      {IS_ARTIFACT ? (
+        <p className="muted text-xs">
+          Press <b>Start answering</b>, then speak using your keyboard’s dictation: the 🎤 key on a phone keyboard, or press <kbd>Fn</kbd> twice (Mac) / <kbd>Win</kbd>+<kbd>H</kbd> (Windows). Press <b>Done</b> when you finish — your speaking time is measured. Nói qua chức năng đọc chính tả của bàn phím, không cần gõ.
+        </p>
+      ) : (
+        !r.asrSupported && <p className="muted text-xs">Live transcript needs Chrome, Edge or Safari. You can type or paste what you said instead.</p>
+      )}
       <div>
         <label className="label" htmlFor="transcript">
-          Transcript {r.asrSupported ? '(automatic — correct any mistakes)' : '(type what you said)'}
+          Transcript {IS_ARTIFACT ? '(dictate your answer here)' : r.asrSupported ? '(automatic — correct any mistakes)' : '(type what you said)'}
         </label>
         <textarea
           id="transcript"
           className="input min-h-24 text-sm"
-          value={r.recording ? `${r.transcript} ${r.interim}`.trim() : r.transcript}
-          readOnly={r.recording}
+          value={r.recording && !IS_ARTIFACT ? `${r.transcript} ${r.interim}`.trim() : r.transcript}
+          readOnly={r.recording && !IS_ARTIFACT}
           onChange={(e) => r.setTranscript(e.target.value)}
-          placeholder={r.recording ? 'Listening…' : 'Your words will appear here.'}
+          placeholder={IS_ARTIFACT ? (r.recording ? 'Speak now with keyboard dictation…' : 'Press Start answering first.') : r.recording ? 'Listening…' : 'Your words will appear here.'}
         />
       </div>
     </div>
@@ -214,6 +240,7 @@ export function SpeakingAssessment({
   answers?: number;
 }) {
   const apiKey = useStore((s) => s.settings.apiKey);
+  const ai = useAiAvailable();
   const auto = useMemo(() => scoreSpeechAuto(transcript, seconds, { part, answers, confidence }), [transcript, seconds, part, answers, confidence]);
   const [c, setC] = useState<SpeakingCriteria>(() => (auto ? { fc: auto.fc.band, lr: auto.lr.band, gra: auto.gra.band, p: auto.p.band } : { fc: 6, lr: 6, gra: 6, p: 6 }));
   const [saved, setSaved] = useState<null | 'self' | 'ai' | 'auto'>(null);
@@ -297,18 +324,28 @@ export function SpeakingAssessment({
       </div>
 
       <div className="card p-5">
-        <h3 className="h2">AI examiner</h3>
-        {!apiKey ? (
-          <p className="muted mt-1 text-sm">
-            Get criterion-by-criterion feedback on your transcript. Add your own Anthropic API key in{' '}
-            <Link className="text-brand-600 underline" to="/settings">
-              Settings
-            </Link>{' '}
-            — it stays in this browser.
-          </p>
+        <h3 className="h2">{ai.via === 'claude' ? 'Claude examiner' : 'AI examiner'}</h3>
+        {!ai.available ? (
+          ai.via === 'claude' ? (
+            <p className="muted mt-1 text-sm">
+              {ai.state === 'checking' ? 'Connecting to Claude…' : 'Claude grading is available when you open this page on claude.ai and allow it to use Claude.'}
+            </p>
+          ) : (
+            <p className="muted mt-1 text-sm">
+              Get criterion-by-criterion feedback on your transcript. Add your own Anthropic API key in{' '}
+              <Link className="text-brand-600 underline" to="/settings">
+                Settings
+              </Link>{' '}
+              — it stays in this browser.
+            </p>
+          )
         ) : (
           <>
-            <p className="muted mt-1 text-sm">Assesses your transcript (pronunciation can only be judged indirectly from text).</p>
+            <p className="muted mt-1 text-sm">
+              {ai.via === 'claude'
+                ? 'Claude assesses your answers like an examiner and suggests better phrases, using your own Claude account (no API key). Pronunciation can only be judged indirectly from text.'
+                : 'Assesses your transcript (pronunciation can only be judged indirectly from text).'}
+            </p>
             <button className="btn-primary mt-3" disabled={busy || transcript.split(/\s+/).length < 15} onClick={() => void runAi()}>
               {busy ? 'Assessing…' : 'Get AI feedback'}
             </button>
