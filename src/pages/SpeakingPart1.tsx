@@ -62,7 +62,7 @@ function Part1Inner({ id }: { id: string }) {
           </div>
           <RecorderPanel r={r} limit={60} />
           <div className="flex justify-end">
-            <button className="btn-primary" disabled={r.recording || !r.transcript.trim()} onClick={nextQuestion}>
+            <button className="btn-primary" disabled={r.recording || !r.hasAnswer} onClick={nextQuestion}>
               {qi < topic.questions.length - 1 ? 'Next question →' : 'Finish'}
             </button>
           </div>

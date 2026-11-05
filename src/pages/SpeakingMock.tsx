@@ -31,7 +31,7 @@ export default function SpeakingMock() {
   );
   const [i, setI] = useState(-1);
   const [prepping, setPrepping] = useState(false);
-  const [answers, setAnswers] = useState<{ step: Step; text: string; seconds: number }[]>([]);
+  const [answers, setAnswers] = useState<{ step: Step; text: string; seconds: number; audio?: string | null }[]>([]);
   const [subId, setSubId] = useState<string | null>(null);
   const r = useRecorder();
   const prep = useTimer(60, prepping, () => {
@@ -58,7 +58,7 @@ export default function SpeakingMock() {
   }
 
   function next() {
-    const list = [...answers, { step, text: r.transcript, seconds: r.seconds }];
+    const list = [...answers, { step, text: r.transcript, seconds: r.seconds, audio: r.audioUrl }];
     setAnswers(list);
     if (i + 1 >= steps.length) {
       const sub = addSpeaking({ itemId: `mock-${t1.id}-${card.id}`, part: 2, transcript: list.map((a) => `[Part ${a.step.part}] ${a.step.q}\n${a.text}`).join('\n\n'), seconds: list.reduce((a, x) => a + x.seconds, 0) });
@@ -113,7 +113,7 @@ export default function SpeakingMock() {
             <RecorderPanel r={r} limit={step.limit} />
           )}
           <div className="flex justify-end">
-            <button className="btn-primary" disabled={prepping || r.recording || !r.transcript.trim()} onClick={next}>
+            <button className="btn-primary" disabled={prepping || r.recording || !r.hasAnswer} onClick={next}>
               {i + 1 >= steps.length ? 'Finish test' : 'Next →'}
             </button>
           </div>
@@ -129,7 +129,8 @@ export default function SpeakingMock() {
                 <div className="font-medium">
                   Part {a.step.part}: {a.step.q} <span className="muted">({a.seconds}s)</span>
                 </div>
-                <p>{a.text}</p>
+                <p>{a.text || <i className="muted">(no transcript)</i>}</p>
+                {a.audio && <audio controls src={a.audio} className="mt-1 h-9 max-w-full" aria-label="Your answer" />}
               </div>
             ))}
             <SpeechStats transcript={transcript} seconds={seconds} />

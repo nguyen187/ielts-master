@@ -35,7 +35,7 @@ function CardInner({ id }: { id: string }) {
   const [notes, setNotes] = useState('');
   const [p2, setP2] = useState<{ text: string; seconds: number; audio: string | null } | null>(null);
   const [p3i, setP3i] = useState(0);
-  const [p3, setP3] = useState<{ q: string; text: string; seconds: number }[]>([]);
+  const [p3, setP3] = useState<{ q: string; text: string; seconds: number; audio?: string | null }[]>([]);
   const [subId, setSubId] = useState<string | null>(null);
   const r = useRecorder();
   const prep = useTimer(60, stage === 'prep', () => setStage('talk'));
@@ -76,7 +76,7 @@ function CardInner({ id }: { id: string }) {
   }
 
   function nextP3() {
-    const list = [...p3, { q: part3Qs[p3i], text: r.transcript, seconds: r.seconds }];
+    const list = [...p3, { q: part3Qs[p3i], text: r.transcript, seconds: r.seconds, audio: r.audioUrl }];
     setP3(list);
     r.setTranscript('');
     if (p3i < part3Qs.length - 1) {
@@ -125,7 +125,7 @@ function CardInner({ id }: { id: string }) {
           {notes && <div className="muted whitespace-pre-line rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800/60">{notes}</div>}
           <p className="text-sm font-semibold">Speak now — recording stops automatically at 2:00.</p>
           <RecorderPanel r={r} limit={120} label="Start speaking" />
-          <button className="btn-primary" disabled={r.recording || !r.transcript.trim()} onClick={finishPart2}>
+          <button className="btn-primary" disabled={r.recording || !r.hasAnswer} onClick={finishPart2}>
             Continue to Part 3 →
           </button>
         </div>
@@ -147,7 +147,7 @@ function CardInner({ id }: { id: string }) {
             <button className="btn-ghost" onClick={() => finishAll()}>
               Skip remaining Part 3
             </button>
-            <button className="btn-primary" disabled={r.recording || !r.transcript.trim()} onClick={nextP3}>
+            <button className="btn-primary" disabled={r.recording || !r.hasAnswer} onClick={nextP3}>
               {p3i < part3Qs.length - 1 ? 'Next question →' : 'Finish'}
             </button>
           </div>
@@ -162,14 +162,16 @@ function CardInner({ id }: { id: string }) {
               {p2?.seconds ?? 0} seconds {p2 && p2.seconds < 90 && '· aim for 1:45–2:00'}
             </div>
             {p2?.audio && <audio controls src={p2.audio} className="w-full" aria-label="Your Part 2 recording" />}
-            <p className="text-sm leading-7">{p2?.text}</p>
+            <p className="text-sm leading-7">{p2?.text || <i className="muted">(no transcript)</i>}</p>
+            {p2?.audio && <audio controls src={p2.audio} className="h-9 max-w-full" aria-label="Your Part 2 talk" />}
             {p3.length > 0 && (
               <>
                 <h3 className="font-semibold">Part 3</h3>
                 {p3.map((a) => (
                   <div key={a.q} className="border-l-4 border-brand-200 pl-3 text-sm dark:border-brand-800">
                     <div className="font-medium">{a.q}</div>
-                    <p>{a.text}</p>
+                    <p>{a.text || <i className="muted">(no transcript)</i>}</p>
+                    {a.audio && <audio controls src={a.audio} className="mt-1 h-9 max-w-full" aria-label="Your answer" />}
                   </div>
                 ))}
               </>

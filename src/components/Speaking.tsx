@@ -89,9 +89,24 @@ export function useRecorder() {
       rec.current = null;
       setAudioUrl(url);
     }
+    // final results can arrive shortly after stop(); if still nothing, tell the learner why
+    setTimeout(() => {
+      setTranscript((t) => {
+        if (!t.trim())
+          setError(
+            (e) =>
+              e ??
+              (recognitionSupported()
+                ? 'No words were recognised. Live transcript works best in Chrome or Edge on a computer (in Safari, turn on Siri / Dictation). Your recording is saved — type a short summary of what you said, or just press Next.'
+                : 'This browser has no live transcript (use Chrome or Edge for it). Your recording is saved — type what you said, or just press Next.'),
+          );
+        return t;
+      });
+    }, 1200);
   }
 
-  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, asrSupported: recognitionSupported() };
+  const hasAnswer = !!(transcript.trim() || audioUrl);
+  return { recording, transcript, setTranscript, interim, audioUrl, seconds, error, start, stop, hasAnswer, asrSupported: recognitionSupported() };
 }
 
 export function RecorderPanel({ r, limit, label = 'Record answer' }: { r: ReturnType<typeof useRecorder>; limit?: number; label?: string }) {
