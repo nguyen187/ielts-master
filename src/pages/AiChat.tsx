@@ -9,6 +9,8 @@ import { useStore } from '../lib/store';
 
 /** Pause (ms) after the learner stops talking before the answer is sent in a voice conversation. */
 export const SILENCE_MS = 2200;
+/** On claude.ai the answer arrives through the system's dictation, which writes in bursts: wait a little longer. */
+export const DICTATION_SILENCE_MS = 3000;
 
 export default function AiChat() {
   const apiKey = useStore((s) => s.settings.apiKey);
@@ -30,7 +32,12 @@ export default function AiChat() {
   const draftRef = useRef('');
   const lastHeard = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const dictating = useRef(false); // artifact: waiting for the learner's dictated answer in the text box
   const micOk = !IS_ARTIFACT && recognitionSupported();
+  // artifacts cannot open the microphone themselves, but the system's dictation (Fn Fn on a Mac, the 🎤 key on a
+  // phone, Win+H) types speech into the box — so the voice conversation still works there
+  const voiceOk = micOk || IS_ARTIFACT;
   const busy = pending !== null;
   const shown: ChatMsg[] = [{ role: 'assistant', content: MODES[mode].opener }, ...history];
   const setDraft = (v: string) => {
@@ -50,10 +57,14 @@ export default function AiChat() {
 
   // in a voice conversation, send the answer once the learner has been quiet for a moment
   const sendRef = useRef<() => void>(() => undefined);
+  const lastAsk = useRef('');
+  lastAsk.current = pending ?? shown[shown.length - 1]?.content ?? '';
   useEffect(() => {
     if (!live) return;
     const t = setInterval(() => {
-      if (asr.current && draftRef.current.trim() && Date.now() - lastHeard.current > SILENCE_MS) sendRef.current();
+      // a Part 2 long turn has natural thinking pauses: wait longer after a cue card
+      const wait = /you should say|one minute to prepare|talk for (up to )?(one|two|1|2) minutes?/i.test(lastAsk.current) ? 6000 : IS_ARTIFACT ? DICTATION_SILENCE_MS : SILENCE_MS;
+      if ((asr.current || dictating.current) && draftRef.current.trim() && Date.now() - lastHeard.current > wait) sendRef.current();
     }, 300);
     return () => clearInterval(t);
   }, [live]);
@@ -78,6 +89,13 @@ export default function AiChat() {
   }
 
   function startMic() {
+    if (IS_ARTIFACT) {
+      dictating.current = true;
+      lastHeard.current = Date.now();
+      setListening(true);
+      box.current?.focus();
+      return;
+    }
     if (asr.current) return;
     before.current = draftRef.current.trim() ? `${draftRef.current.trim()} ` : '';
     lastHeard.current = Date.now();
@@ -100,6 +118,7 @@ export default function AiChat() {
     setListening(true);
   }
   function stopMic() {
+    dictating.current = false;
     asr.current?.stop();
     asr.current = null;
     setListening(false);
@@ -277,27 +296,26 @@ export default function AiChat() {
 
         {mode !== 'tutor' && (
           <div className="border-t border-slate-200 p-4 dark:border-slate-700">
-            {!micOk ? (
-              <p className="muted text-sm">
-                {IS_ARTIFACT ? (
-                  <>
-                    Artifacts on claude.ai cannot use the microphone, so here you answer by typing or with your keyboard’s dictation. For the full voice test (AI hỏi bằng giọng, bạn trả lời bằng micro), use the web version:{' '}
-                    <a className="font-semibold text-brand-600 underline" href="https://nguyen187.github.io/ielts-master/" target="_blank" rel="noreferrer">
-                      nguyen187.github.io/ielts-master
-                    </a>
-                  </>
-                ) : (
-                  'Voice conversation needs Chrome, Edge or Safari. Hội thoại bằng giọng nói cần Chrome, Edge hoặc Safari.'
-                )}
-              </p>
+            {!voiceOk ? (
+              <p className="muted text-sm">Voice conversation needs Chrome, Edge or Safari. Hội thoại bằng giọng nói cần Chrome, Edge hoặc Safari.</p>
             ) : !live ? (
               <div className="flex flex-col items-center gap-2 text-center">
                 <button className="btn-primary px-6 py-3 text-base" onClick={startConversation} disabled={!ai.available || busy}>
                   🎙️ {mode === 'examiner' ? (history.length ? 'Continue the speaking test' : 'Start the speaking test') : history.length ? 'Continue talking' : 'Start talking'}
                 </button>
-                <p className="muted max-w-md text-xs">
-                  AI đọc câu hỏi thành tiếng, bạn trả lời bằng micro. Ngừng nói khoảng 2 giây là câu trả lời tự gửi. Nên dùng tai nghe để micro không thu tiếng AI.
-                </p>
+                {IS_ARTIFACT ? (
+                  <div className="muted max-w-md text-xs">
+                    <p>AI đọc câu hỏi thành tiếng. Bạn trả lời bằng giọng nói qua <b>đọc chính tả của máy</b>:</p>
+                    <p className="mt-1">
+                      <b>Mac:</b> bấm <kbd>Fn</kbd> 2 lần (hoặc 🎤) · <b>Windows:</b> <kbd>Win</kbd>+<kbd>H</kbd> · <b>Điện thoại:</b> nút 🎤 trên bàn phím
+                    </p>
+                    <p className="mt-1">Bật đọc chính tả một lần rồi cứ nói. Ngừng nói khoảng 3 giây là câu trả lời tự gửi. Nên đeo tai nghe.</p>
+                  </div>
+                ) : (
+                  <p className="muted max-w-md text-xs">
+                    AI đọc câu hỏi thành tiếng, bạn trả lời bằng micro. Ngừng nói khoảng 2 giây là câu trả lời tự gửi. Nên dùng tai nghe để micro không thu tiếng AI.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2" role="status">
@@ -308,7 +326,7 @@ export default function AiChat() {
                     <>💭 Thinking…</>
                   ) : listening ? (
                     <>
-                      <span className="h-3 w-3 animate-pulse rounded-full bg-rose-600" aria-hidden /> Listening — speak now
+                      <span className="h-3 w-3 animate-pulse rounded-full bg-rose-600" aria-hidden /> {IS_ARTIFACT ? 'Your turn — speak (dictation on)' : 'Listening — speak now'}
                       <span className="muted text-xs font-normal">(sends after a short pause)</span>
                     </>
                   ) : (
@@ -342,11 +360,15 @@ export default function AiChat() {
           }}
         >
           <textarea
+            ref={box}
             aria-label="Your message"
             className="input min-h-[72px] w-full resize-y"
             placeholder={mode === 'tutor' ? 'Ask a question… (tiếng Việt hoặc English)' : listening ? 'Listening… speak now' : 'Type or speak your answer in English…'}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              lastHeard.current = Date.now();
+              setDraft(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();

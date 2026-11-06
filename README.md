@@ -9,7 +9,7 @@ All learning content is original. No account is needed: progress is stored in th
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 110 tests: content QA, core logic, sync/merge, page flows, AI voice test
+npm test           # 111 tests: content QA, core logic, sync/merge, page flows, AI voice test
 npm run build      # typecheck + production build in dist/
 npm run build:artifact  # single-file claude.ai Artifact build in dist-artifact/ielts-master.html
 ```
@@ -38,7 +38,7 @@ Writing and Speaking can be graded by Claude (`claude-opus-5-5`) with structured
 `npm run build:artifact` produces one self-contained page for claude.ai. There, Writing and Speaking are graded by Claude on the **learner's own Claude account** (no API key; the page asks once for permission), and each learner's progress is saved privately in the artifact's database (`progress/{self}`). Artifacts cannot use the microphone, so Speaking uses the keyboard's dictation while the app times the answer. Supabase sync is disabled in this build.
 
 ### Speak with AI
-`/chat` is a voice conversation with Claude in three modes: **Mock test (AI examiner)**, the default (a full Part 1→2→3 Speaking test by voice: the examiner's questions are read aloud, the mic opens for the answer, and it is sent after about 2 s of silence; estimated bands at the end; say "end test" to finish early), **Speaking partner** (natural conversation with short ✏️ corrections after each turn) and **Ask a tutor** (grammar, vocabulary and strategy questions, in Vietnamese or English). Voice uses the browser's speech recognition and speech synthesis; typing works too, and is the input on claude.ai, where artifacts have no microphone. It runs on the learner's API key on the web and on their Claude account in the artifact; each mode's conversation is kept on the device (`src/lib/chat.ts`).
+`/chat` is a voice conversation with Claude in three modes: **Mock test (AI examiner)**, the default (a full Part 1→2→3 Speaking test by voice: the examiner's questions are read aloud, the mic opens for the answer, and it is sent after about 2 s of silence; estimated bands at the end; say "end test" to finish early), **Speaking partner** (natural conversation with short ✏️ corrections after each turn) and **Ask a tutor** (grammar, vocabulary and strategy questions, in Vietnamese or English). Voice uses the browser's speech recognition and speech synthesis; on claude.ai, where the page cannot open the microphone, the questions are still read aloud and the answer comes from the system dictation (Fn Fn, Win+H, the phone 🎤 key) typing into the box, sent after about 3 s without new words; after a Part 2 cue card the pause is 6 s. It runs on the learner's API key on the web and on their Claude account in the artifact; each mode's conversation is kept on the device (`src/lib/chat.ts`).
 
 ## Architecture
 
