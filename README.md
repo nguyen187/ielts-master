@@ -9,7 +9,7 @@ All learning content is original. No account is needed: progress is stored in th
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 101 tests: content QA, core logic, sync/merge, page flows
+npm test           # 108 tests: content QA, core logic, sync/merge, page flows, AI chat
 npm run build      # typecheck + production build in dist/
 npm run build:artifact  # single-file claude.ai Artifact build in dist-artifact/ielts-master.html
 ```
@@ -36,6 +36,9 @@ Writing and Speaking can be graded by Claude (`claude-opus-5-5`) with structured
 
 ### claude.ai Artifact edition
 `npm run build:artifact` produces one self-contained page for claude.ai. There, Writing and Speaking are graded by Claude on the **learner's own Claude account** (no API key; the page asks once for permission), and each learner's progress is saved privately in the artifact's database (`progress/{self}`). Artifacts cannot use the microphone, so Speaking uses the keyboard's dictation while the app times the answer. Supabase sync is disabled in this build.
+
+### Chat with AI
+`/chat` is a streaming conversation with Claude in three modes: **Speaking partner** (natural chat with short ✏️ corrections after each turn), **IELTS examiner** (a full Part 1→2→3 test, then estimated bands; type "end test" to finish early) and **Ask a tutor** (grammar, vocabulary and strategy questions, in Vietnamese or English). Voice input uses the browser's speech recognition and replies can be read aloud. It runs on the learner's API key on the web and on their Claude account in the artifact; each mode's conversation is kept on the device (`src/lib/chat.ts`).
 
 ## Architecture
 

@@ -21,6 +21,7 @@ import MockTest from './pages/MockTest';
 import Progress from './pages/Progress';
 import Settings from './pages/Settings';
 import Descriptors from './pages/Descriptors';
+import AiChat from './pages/AiChat';
 
 function NotFound() {
   return (
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="/guides" element={<GuidesList />} />
         <Route path="/guides/:id" element={<GuidePage />} />
         <Route path="/mock" element={<MockTest />} />
+        <Route path="/chat" element={<AiChat />} />
         <Route path="/progress" element={<Progress />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/descriptors" element={<Descriptors />} />
