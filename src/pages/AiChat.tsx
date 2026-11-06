@@ -33,6 +33,8 @@ export default function AiChat() {
   const lastHeard = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const fileIn = useRef<HTMLInputElement>(null);
+  const [stt, setStt] = useState<string | null>(null); // offline transcription in progress
   const dictating = useRef(false); // artifact: waiting for the learner's dictated answer in the text box
   const micOk = !IS_ARTIFACT && recognitionSupported();
   // artifacts cannot open the microphone themselves, but the system's dictation (Fn Fn on a Mac, the 🎤 key on a
@@ -167,8 +169,44 @@ export default function AiChat() {
     else listen();
   }
 
+  /** A recording made with the device (no microphone access on claude.ai): transcribe it here, then send it. */
+  async function onRecording(file: File) {
+    stopSpeaking();
+    setSpeakingIdx(null);
+    setError(null);
+    setStt('Reading your recording…');
+    try {
+      const { transcribe } = await import('../lib/transcribe');
+      const { text } = await transcribe(file, (stage, frac) =>
+        setStt(
+          stage === 'loading'
+            ? `Loading the speech recogniser — first time only${frac !== undefined ? ` (${Math.round(frac * 100)}%)` : ''}…`
+            : stage === 'decoding'
+              ? 'Reading your recording…'
+              : 'Turning your speech into text…',
+        ),
+      );
+      setStt(null);
+      if (!text) {
+        setError('No words were recognised in that recording. Speak a little louder and closer to the phone, then try again.');
+        return;
+      }
+      void send(draftRef.current.trim() ? `${draftRef.current.trim()} ${text}` : text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not transcribe that recording.');
+    } finally {
+      setStt(null);
+    }
+  }
+  const recordButton = (big = false) => (
+    <button type="button" className={big ? 'btn-primary px-5 py-3 text-base' : 'btn-secondary'} onClick={() => fileIn.current?.click()} disabled={!!stt || busy || !ai.available}>
+      🎙️ Record answer
+    </button>
+  );
+
   function startConversation() {
     setError(null);
+    if (IS_ARTIFACT) void import('../lib/transcribe').then((m) => m.preloadTranscriber());
     liveRef.current = true;
     setLive(true);
     const last = shown[shown.length - 1];
@@ -336,11 +374,13 @@ export default function AiChat() {
                 </button>
                 {IS_ARTIFACT ? (
                   <div className="muted max-w-md text-xs">
-                    <p>AI đọc câu hỏi thành tiếng. Bạn trả lời bằng giọng nói qua <b>đọc chính tả của máy</b>:</p>
+                    <p>AI đọc câu hỏi thành tiếng. Bạn trả lời bằng giọng nói theo 1 trong 2 cách:</p>
                     <p className="mt-1">
-                      <b>Mac:</b> bấm <kbd>Fn</kbd> 2 lần (hoặc 🎤) · <b>Windows:</b> <kbd>Win</kbd>+<kbd>H</kbd> · <b>Điện thoại:</b> nút 🎤 trên bàn phím
+                      <b>① 🎙️ Record answer:</b> ghi âm bằng máy (điện thoại: chọn ghi âm / quay video; máy tính: chọn file ghi âm), app tự nhận dạng giọng nói ngay trong trình duyệt rồi gửi.
                     </p>
-                    <p className="mt-1">Bật đọc chính tả một lần rồi cứ nói. Ngừng nói khoảng 3 giây là câu trả lời tự gửi. Nên đeo tai nghe.</p>
+                    <p className="mt-1">
+                      <b>② Đọc chính tả:</b> Mac bấm <kbd>Fn</kbd> 2 lần · Windows <kbd>Win</kbd>+<kbd>H</kbd> · điện thoại nút 🎤 trên bàn phím. Ngừng nói 3 giây là tự gửi.
+                    </p>
                   </div>
                 ) : (
                   <p className="muted max-w-md text-xs">
@@ -377,12 +417,13 @@ export default function AiChat() {
                     Send now ➤
                   </button>
                 )}
+                {IS_ARTIFACT && recordButton()}
                 <button className="btn-secondary" onClick={endConversation}>
                   ■ End
                 </button>
                 {IS_ARTIFACT && listening && heard.idle >= 6 && (
                   <p className="w-full rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
-                    Chưa nghe thấy gì. Trang trên claude.ai không tự mở được micro — hãy bật <b>đọc chính tả</b> rồi nói: <b>Mac</b> bấm <kbd>Fn</kbd> 2 lần · <b>Windows</b> <kbd>Win</kbd>+<kbd>H</kbd> · <b>điện thoại</b> bấm 🎤 trên bàn phím. Chữ sẽ hiện trong ô bên dưới.
+                    Chưa nghe thấy gì. Bấm <b>🎙️ Record answer</b> để ghi âm câu trả lời, hoặc bật <b>đọc chính tả</b> rồi nói: <b>Mac</b> bấm <kbd>Fn</kbd> 2 lần · <b>Windows</b> <kbd>Win</kbd>+<kbd>H</kbd> · <b>điện thoại</b> bấm 🎤 trên bàn phím. Chữ sẽ hiện trong ô bên dưới.
                   </p>
                 )}
               </div>
@@ -421,6 +462,7 @@ export default function AiChat() {
             }}
           />
           <div className="flex flex-wrap items-center gap-2">
+            {IS_ARTIFACT && mode !== 'tutor' && !live && recordButton()}
             {micOk && !live && (
               <button type="button" className={listening ? 'btn-primary bg-rose-600 hover:bg-rose-700' : 'btn-secondary'} onClick={listening ? stopMic : startMic}>
                 {listening ? '■ Stop mic' : '🎤 Speak'}
@@ -440,6 +482,23 @@ export default function AiChat() {
               </button>
             )}
           </div>
+          {stt && (
+            <p role="status" className="flex items-center gap-2 text-sm text-brand-700 dark:text-brand-300">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden /> {stt}
+            </p>
+          )}
+          <input
+            ref={fileIn}
+            type="file"
+            accept="audio/*,video/*"
+            hidden
+            aria-label="Recording of your answer"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void onRecording(f);
+            }}
+          />
           <p className="muted text-xs">
             Enter to send · Shift+Enter for a new line.{' '}
             {IS_ARTIFACT

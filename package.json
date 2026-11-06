@@ -12,10 +12,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "validate:content": "vitest run tests/content.test.ts",
-    "build:artifact": "tsc --noEmit && VITE_TARGET=artifact BASE_PATH=./ vite build --outDir dist-artifact && node scripts/build-artifact.mjs"
+    "build:artifact": "tsc --noEmit && VITE_TARGET=artifact BASE_PATH=./ vite build --outDir dist-artifact && node scripts/build-artifact.mjs",
+    "fetch:whisper": "mkdir -p .whisper-cache/onnx && cd .whisper-cache && for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx; do [ -s $f ] || curl -sfL -o $f https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/$f; done"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
+    "@huggingface/transformers": "^3.7.6",
     "@supabase/supabase-js": "^2.118.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

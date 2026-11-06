@@ -6,6 +6,8 @@ import { MemoryRouter } from 'react-router-dom';
 vi.mock('../src/lib/artifact', async (orig) => ({ ...(await orig<typeof import('../src/lib/artifact')>()), IS_ARTIFACT: true }));
 vi.mock('../src/lib/ai', async (orig) => ({ ...(await orig<typeof import('../src/lib/ai')>()), useAiAvailable: () => ({ available: true, via: 'claude', state: 'ready' }) }));
 const reply = vi.fn();
+const transcribe = vi.fn();
+vi.mock('../src/lib/transcribe', () => ({ transcribe: (f: Blob, p: unknown) => transcribe(f, p), preloadTranscriber: () => undefined }));
 vi.mock('../src/lib/chat', async (orig) => ({ ...(await orig<typeof import('../src/lib/chat')>()), chatReply: (o: unknown) => reply(o) }));
 
 import AiChat from '../src/pages/AiChat';
@@ -37,7 +39,7 @@ describe('voice test on claude.ai (artifact)', () => {
         <AiChat />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/đọc chính tả của máy/)).toBeInTheDocument();
+    expect(screen.getByText(/Bạn trả lời bằng giọng nói theo 1 trong 2 cách/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Start the speaking test/ }));
     expect(spoken[0]).toMatch(/full name/);
     act(() => utter!.onend!());
@@ -107,5 +109,36 @@ describe('voice test on claude.ai (artifact)', () => {
       });
     expect(reply.mock.calls[0][0].history).toEqual([{ role: 'user', content: 'My name is Bao' }]);
     vi.useRealTimers();
+  });
+
+  it('records with the device, transcribes offline and sends the words', async () => {
+    reply.mockResolvedValue('Thank you. Do you work or study?');
+    transcribe.mockImplementation(async (_f: Blob, progress: (s: string, f?: number) => void) => {
+      progress('loading', 0.5);
+      return { text: 'My name is Linh and I study economics.', seconds: 4 };
+    });
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AiChat />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: /Record answer/ })).toBeEnabled();
+    const input = screen.getByLabelText('Recording of your answer') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'answer.m4a', { type: 'audio/mp4' })] } });
+    expect(await screen.findByText(/Do you work or study/)).toBeInTheDocument();
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(reply.mock.calls[0][0].history).toEqual([{ role: 'user', content: 'My name is Linh and I study economics.' }]);
+  });
+
+  it('explains when nothing was recognised in the recording', async () => {
+    transcribe.mockResolvedValue({ text: '', seconds: 3 });
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AiChat />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByLabelText('Recording of your answer'), { target: { files: [new File(['x'], 'a.m4a')] } });
+    expect(await screen.findByText(/No words were recognised/)).toBeInTheDocument();
+    expect(reply).not.toHaveBeenCalled();
   });
 });
