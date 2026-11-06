@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { emptyState, resetState } from '../src/lib/store';
 
@@ -10,9 +10,9 @@ import AiChat, { splitFix } from '../src/pages/AiChat';
 import { loadChat } from '../src/lib/chat';
 
 const withKey = () => resetState({ ...emptyState(), settings: { ...emptyState().settings, apiKey: 'test-key' } });
-const page = () =>
+const page = (path = '/chat?mode=partner') =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <AiChat />
     </MemoryRouter>,
   );
@@ -56,7 +56,7 @@ describe('chat with AI', () => {
     fireEvent.change(screen.getByLabelText('Your message'), { target: { value: 'Hi' } });
     fireEvent.click(screen.getByRole('button', { name: /send/i }));
     await screen.findByText('Okay.');
-    fireEvent.click(screen.getByRole('tab', { name: /IELTS examiner/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Mock test/ }));
     expect(screen.getByText(/I’ll be your examiner today/)).toBeInTheDocument();
     expect(screen.queryByText('Okay.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /Speaking partner/ }));
@@ -77,6 +77,65 @@ describe('chat with AI', () => {
     expect(await screen.findByText('Back again.')).toBeInTheDocument();
     expect(screen.getAllByText('Hello there')).toHaveLength(1);
     expect(reply.mock.calls[1][0].history).toHaveLength(1);
+  });
+
+  it('opens on the AI examiner mock test by default', () => {
+    withKey();
+    page('/chat');
+    expect(screen.getByText(/I’ll be your examiner today/)).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Mock test/, selected: true })).toBeInTheDocument();
+  });
+
+  it('runs a hands-free voice test: speaks the question, listens, sends after a pause, speaks the reply', async () => {
+    withKey();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const spoken: string[] = [];
+    let utter: { onend?: () => void } | null = null;
+    (globalThis as Record<string, unknown>).SpeechSynthesisUtterance = class {
+      text: string;
+      onend?: () => void;
+      constructor(t: string) {
+        this.text = t;
+      }
+    };
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: { speak: (u: { text: string; onend?: () => void }) => { spoken.push(u.text); utter = u; }, cancel: () => undefined, getVoices: () => [] },
+    });
+    let rec: { onresult: ((e: unknown) => void) | null; started: number } | null = null;
+    (window as unknown as Record<string, unknown>).webkitSpeechRecognition = class {
+      onresult: ((e: unknown) => void) | null = null;
+      onend = null;
+      onerror = null;
+      started = 0;
+      constructor() {
+        rec = this as never;
+      }
+      start() {
+        this.started++;
+      }
+      stop() {}
+    };
+    reply.mockResolvedValue('Thank you. Do you work or are you a student?');
+    page('/chat?mode=examiner');
+    fireEvent.click(screen.getByRole('button', { name: /Start the speaking test/ }));
+    expect(spoken[0]).toMatch(/Can you tell me your full name/);
+    expect(screen.getByText(/Examiner is speaking/)).toBeInTheDocument();
+    act(() => utter!.onend!()); // question finished → mic opens
+    expect(screen.getByText(/Listening — speak now/)).toBeInTheDocument();
+    act(() => rec!.onresult!({ resultIndex: 0, results: [Object.assign([{ transcript: 'My name is Linh', confidence: 0.9 }], { isFinal: true })] }));
+    expect(reply).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(reply).toHaveBeenCalledTimes(1);
+    expect(reply.mock.calls[0][0].history).toEqual([{ role: 'user', content: 'My name is Linh' }]);
+    expect(await screen.findByText(/Do you work or are you a student/)).toBeInTheDocument();
+    expect(spoken[1]).toMatch(/Do you work or are you a student/);
+    fireEvent.click(screen.getByRole('button', { name: /End/ }));
+    expect(screen.getByRole('button', { name: /Continue the speaking test/ })).toBeInTheDocument();
+    vi.useRealTimers();
+    delete (window as unknown as Record<string, unknown>).webkitSpeechRecognition;
   });
 
   it('splits the correction paragraph from the reply', () => {

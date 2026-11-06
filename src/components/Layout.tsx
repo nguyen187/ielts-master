@@ -10,7 +10,7 @@ const NAV: { to: string; label: string; icon: string; group?: string }[] = [
   { to: '/writing', label: 'Writing', icon: '✍️', group: 'Practise' },
   { to: '/speaking', label: 'Speaking', icon: '🗣️', group: 'Practise' },
   { to: '/mock', label: 'Full mock test', icon: '📝', group: 'Practise' },
-  { to: '/chat', label: 'Chat with AI', icon: '🤖', group: 'Practise' },
+  { to: '/chat', label: 'Speak with AI', icon: '🤖', group: 'Practise' },
   { to: '/vocabulary', label: 'Vocabulary', icon: '🧠', group: 'Build' },
   { to: '/grammar', label: 'Grammar', icon: '🧩', group: 'Build' },
   { to: '/guides', label: 'Strategy guides', icon: '🧭', group: 'Build' },

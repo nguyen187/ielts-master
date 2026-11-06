@@ -14,19 +14,19 @@ export interface ChatMsg {
 const MODEL = 'claude-opus-5-5';
 
 export const MODES: Record<ChatMode, { label: string; icon: string; hint: string; opener: string; starters: string[] }> = {
+  examiner: {
+    label: 'Mock test (AI examiner)',
+    icon: '🎓',
+    hint: 'Thi thử Speaking như phòng thi thật, bằng giọng nói: Part 1 → Part 2 → Part 3, cuối buổi có nhận xét và band ước tính.',
+    opener: 'Good morning. My name is Claude and I’ll be your examiner today. This is the Speaking test. Can you tell me your full name, please?',
+    starters: ['My full name is …', 'Please start the test.'],
+  },
   partner: {
     label: 'Speaking partner',
     icon: '💬',
     hint: 'Trò chuyện tự nhiên bằng tiếng Anh. AI hỏi tiếp, và sửa nhẹ câu của bạn sau mỗi lượt.',
     opener: 'Hi! I’m your English speaking partner. What would you like to talk about today — your work or studies, a hobby, travel, or something you did recently?',
     starters: ['Let’s talk about my hometown.', 'I want to practise talking about technology.', 'Ask me about my favourite food.'],
-  },
-  examiner: {
-    label: 'IELTS examiner',
-    icon: '🎓',
-    hint: 'Thi thử Speaking như phòng thi thật: Part 1 → Part 2 → Part 3, cuối buổi có nhận xét và band ước tính.',
-    opener: 'Good morning. My name is Claude and I’ll be your examiner today. This is the Speaking test. Can you tell me your full name, please?',
-    starters: ['My full name is …', 'Please start the test.'],
   },
   tutor: {
     label: 'Ask a tutor',
@@ -37,7 +37,7 @@ export const MODES: Record<ChatMode, { label: string; icon: string; hint: string
   },
 };
 
-const COMMON = `You are part of IELTS Master, a study app for IELTS learners, many of them Vietnamese. Keep messages short enough to read on a phone. Never write long lectures.`;
+const COMMON = `You are part of IELTS Master, a study app for IELTS learners, many of them Vietnamese. Your messages are usually read aloud to the learner and their answers come from speech recognition, so write the way people speak, keep messages short, avoid tables and symbols, and ignore small transcription slips (missing punctuation, misheard words). Never write long lectures.`;
 
 const SYSTEMS: Record<ChatMode, string> = {
   partner: `${COMMON}

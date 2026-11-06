@@ -27,8 +27,8 @@ export default function SpeakingHome() {
             <Link to="/speaking/mock" className="btn-primary">
               🎤 Full speaking mock
             </Link>
-            <Link to="/chat" className="btn-secondary">
-              🤖 Talk with AI
+            <Link to="/chat?mode=examiner" className="btn-primary">
+              🤖 Mock test with AI examiner
             </Link>
             <Link to="/guides/guide-speaking-overview" className="btn-secondary">
               🧭 Strategy
