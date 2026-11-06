@@ -12,6 +12,11 @@ export const SILENCE_MS = 2200;
 /** On claude.ai the answer arrives through the system's dictation, which writes in bursts: wait a little longer. */
 export const DICTATION_SILENCE_MS = 3000;
 
+// a phone can hand the page a fresh recording from its recorder or camera; a computer can only pick a file
+const UA = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+const IS_IOS = /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1);
+const IS_PHONE = IS_IOS || /Android|Mobile/.test(UA);
+
 export default function AiChat() {
   const apiKey = useStore((s) => s.settings.apiKey);
   const ai = useAiAvailable();
@@ -200,7 +205,7 @@ export default function AiChat() {
   }
   const recordButton = (big = false) => (
     <button type="button" className={big ? 'btn-primary px-5 py-3 text-base' : 'btn-secondary'} onClick={() => fileIn.current?.click()} disabled={!!stt || busy || !ai.available}>
-      🎙️ Record answer
+      {IS_PHONE ? '🎙️ Record answer' : '📁 Upload a recording'}
     </button>
   );
 
@@ -374,13 +379,16 @@ export default function AiChat() {
                 </button>
                 {IS_ARTIFACT ? (
                   <div className="muted max-w-md text-xs">
-                    <p>AI đọc câu hỏi thành tiếng. Bạn trả lời bằng giọng nói theo 1 trong 2 cách:</p>
-                    <p className="mt-1">
-                      <b>① 🎙️ Record answer:</b> ghi âm bằng máy (điện thoại: chọn ghi âm / quay video; máy tính: chọn file ghi âm), app tự nhận dạng giọng nói ngay trong trình duyệt rồi gửi.
-                    </p>
-                    <p className="mt-1">
-                      <b>② Đọc chính tả:</b> Mac bấm <kbd>Fn</kbd> 2 lần · Windows <kbd>Win</kbd>+<kbd>H</kbd> · điện thoại nút 🎤 trên bàn phím. Ngừng nói 3 giây là tự gửi.
-                    </p>
+                    <p>AI đọc câu hỏi thành tiếng, bạn trả lời bằng giọng nói. claude.ai không cho trang tự bật micro, nên:</p>
+                    {IS_PHONE ? (
+                      <p className="mt-1">
+                        <b>🎙️ Record answer</b> mở ngay {IS_IOS ? 'camera (quay video — app chỉ lấy tiếng)' : 'máy ghi âm'} của điện thoại. Nói xong bấm dùng bản ghi, app tự nhận dạng rồi gửi. Hoặc bấm 🎤 trên bàn phím để đọc chính tả.
+                      </p>
+                    ) : (
+                      <p className="mt-1">
+                        <b>Trên máy tính:</b> bật <b>đọc chính tả</b> rồi cứ nói — Mac bấm <kbd>Fn</kbd> 2 lần, Windows <kbd>Win</kbd>+<kbd>H</kbd>. Chữ hiện vào ô, ngừng nói 3 giây là tự gửi. (Nút 📁 chỉ để gửi một file ghi âm có sẵn.)
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="muted max-w-md text-xs">
@@ -490,7 +498,9 @@ export default function AiChat() {
           <input
             ref={fileIn}
             type="file"
-            accept="audio/*,video/*"
+            // iPhone records audio only as a video; Android opens its sound recorder
+            accept={IS_IOS ? 'video/*' : IS_PHONE ? 'audio/*' : 'audio/*,video/*'}
+            {...(IS_PHONE ? { capture: 'user' as const } : {})}
             hidden
             aria-label="Recording of your answer"
             onChange={(e) => {

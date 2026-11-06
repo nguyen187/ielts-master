@@ -39,7 +39,7 @@ describe('voice test on claude.ai (artifact)', () => {
         <AiChat />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/Bạn trả lời bằng giọng nói theo 1 trong 2 cách/)).toBeInTheDocument();
+    expect(screen.getByText(/claude.ai không cho trang tự bật micro/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Start the speaking test/ }));
     expect(spoken[0]).toMatch(/full name/);
     act(() => utter!.onend!());
@@ -122,7 +122,7 @@ describe('voice test on claude.ai (artifact)', () => {
         <AiChat />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('button', { name: /Record answer/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Record answer|Upload a recording/ })).toBeEnabled();
     const input = screen.getByLabelText('Recording of your answer') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['x'], 'answer.m4a', { type: 'audio/mp4' })] } });
     expect(await screen.findByText(/Do you work or study/)).toBeInTheDocument();
