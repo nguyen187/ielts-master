@@ -59,12 +59,43 @@ export default function AiChat() {
   const sendRef = useRef<() => void>(() => undefined);
   const lastAsk = useRef('');
   lastAsk.current = pending ?? shown[shown.length - 1]?.content ?? '';
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  const lastVal = useRef('');
+  const composing = useRef(false);
+  const [heard, setHeard] = useState<{ words: number; sendIn: number | null; idle: number }>({ words: 0, sendIn: null, idle: 0 });
   useEffect(() => {
     if (!live) return;
+    lastVal.current = '';
     const t = setInterval(() => {
+      if (busyRef.current) return;
+      // read the box itself: dictation can write into it without the events React listens to
+      const val = IS_ARTIFACT ? (box.current?.value ?? '') : draftRef.current;
+      if (val !== lastVal.current) {
+        lastVal.current = val;
+        lastHeard.current = Date.now();
+        if (val !== draftRef.current) setDraft(val);
+        // the learner started answering while the AI was still talking: stop talking and listen
+        if (val.trim() && !dictating.current && !asr.current && IS_ARTIFACT) {
+          stopSpeaking();
+          setSpeakingIdx(null);
+          dictating.current = true;
+          setListening(true);
+        }
+      }
+      const listeningNow = !!(asr.current || dictating.current);
       // a Part 2 long turn has natural thinking pauses: wait longer after a cue card
       const wait = /you should say|one minute to prepare|talk for (up to )?(one|two|1|2) minutes?/i.test(lastAsk.current) ? 6000 : IS_ARTIFACT ? DICTATION_SILENCE_MS : SILENCE_MS;
-      if ((asr.current || dictating.current) && draftRef.current.trim() && Date.now() - lastHeard.current > wait) sendRef.current();
+      const quiet = Date.now() - lastHeard.current;
+      const text = val.trim();
+      setHeard({ words: text ? text.split(/\s+/).length : 0, sendIn: text && listeningNow ? Math.max(0, Math.ceil((wait - quiet) / 1000)) : null, idle: listeningNow && !text ? Math.floor(quiet / 1000) : 0 });
+      if (!listeningNow || !text || quiet <= wait) return;
+      if (composing.current) {
+        box.current?.blur(); // commits the dictation's pending text; sent on the next tick
+        composing.current = false;
+        return;
+      }
+      sendRef.current();
     }, 300);
     return () => clearInterval(t);
   }, [live]);
@@ -130,7 +161,7 @@ export default function AiChat() {
     if (!liveRef.current) return;
     const listen = () => {
       setSpeakingIdx((cur) => (cur === idx ? null : cur));
-      if (liveRef.current) startMic();
+      if (liveRef.current && !busyRef.current) startMic();
     };
     if (speak(text, listen)) setSpeakingIdx(idx);
     else listen();
@@ -326,8 +357,10 @@ export default function AiChat() {
                     <>💭 Thinking…</>
                   ) : listening ? (
                     <>
-                      <span className="h-3 w-3 animate-pulse rounded-full bg-rose-600" aria-hidden /> {IS_ARTIFACT ? 'Your turn — speak (dictation on)' : 'Listening — speak now'}
-                      <span className="muted text-xs font-normal">(sends after a short pause)</span>
+                      <span className="h-3 w-3 animate-pulse rounded-full bg-rose-600" aria-hidden /> {IS_ARTIFACT ? 'Your turn — speak now' : 'Listening — speak now'}
+                      <span className="muted text-xs font-normal">
+                        {heard.words ? `heard ${heard.words} word${heard.words > 1 ? 's' : ''}${heard.sendIn !== null ? ` · sending in ${heard.sendIn}s` : ''}` : '(sends after a short pause)'}
+                      </span>
                     </>
                   ) : (
                     'Paused'
@@ -339,7 +372,7 @@ export default function AiChat() {
                     ⏭ Answer now
                   </button>
                 )}
-                {listening && draft.trim() && (
+                {(listening || speakingIdx !== null) && draft.trim() && (
                   <button className="btn-primary" onClick={() => void send()}>
                     Send now ➤
                   </button>
@@ -347,6 +380,11 @@ export default function AiChat() {
                 <button className="btn-secondary" onClick={endConversation}>
                   ■ End
                 </button>
+                {IS_ARTIFACT && listening && heard.idle >= 6 && (
+                  <p className="w-full rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
+                    Chưa nghe thấy gì. Trang trên claude.ai không tự mở được micro — hãy bật <b>đọc chính tả</b> rồi nói: <b>Mac</b> bấm <kbd>Fn</kbd> 2 lần · <b>Windows</b> <kbd>Win</kbd>+<kbd>H</kbd> · <b>điện thoại</b> bấm 🎤 trên bàn phím. Chữ sẽ hiện trong ô bên dưới.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -368,6 +406,12 @@ export default function AiChat() {
             onChange={(e) => {
               lastHeard.current = Date.now();
               setDraft(e.target.value);
+            }}
+            onCompositionStart={() => {
+              composing.current = true;
+            }}
+            onCompositionEnd={() => {
+              composing.current = false;
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

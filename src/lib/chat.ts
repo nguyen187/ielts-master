@@ -136,22 +136,62 @@ export function saveChat(mode: ChatMode, history: ChatMsg[]) {
 }
 
 /** Read a message aloud with the browser's English voice (no network needed). */
+// the utterance must stay referenced: Chrome drops `onend` for one that was garbage-collected
+let active: { u: SpeechSynthesisUtterance; cancel: () => void } | null = null;
+
+/**
+ * Read a message aloud with the browser's English voice (no network needed). `onEnd` is called once,
+ * when speech ends — or, since browsers (and sandboxed frames) sometimes never report the end or never
+ * start speaking at all, after a time limit — but not when it is stopped with `stopSpeaking`.
+ */
 export function speak(text: string, onEnd?: () => void): boolean {
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
   if (!synth || typeof SpeechSynthesisUtterance === 'undefined') return false;
-  synth.cancel();
-  const clean = text.replace(/✏️[\s\S]*$/, '').replace(/[*_#`>]/g, '').trim();
-  const u = new SpeechSynthesisUtterance(clean || text);
+  stopSpeaking();
+  const clean = text.replace(/✏️[\s\S]*$/, '').replace(/[*_#`>]/g, '').trim() || text;
+  const u = new SpeechSynthesisUtterance(clean);
   u.lang = 'en-GB';
   u.rate = 0.95;
-  const voice = synth.getVoices().find((v) => v.lang === 'en-GB') ?? synth.getVoices().find((v) => v.lang.startsWith('en'));
+  const voices = synth.getVoices?.() ?? [];
+  const voice = voices.find((v) => v.lang === 'en-GB') ?? voices.find((v) => v.lang?.startsWith('en'));
   if (voice) u.voice = voice;
-  u.onend = () => onEnd?.();
-  u.onerror = () => onEnd?.();
-  synth.speak(u);
+  let done = false;
+  let started = false;
+  const words = clean.split(/\s+/).length;
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const finish = () => {
+    if (done) return;
+    done = true;
+    timers.forEach(clearTimeout);
+    if (active?.u === u) active = null;
+    onEnd?.();
+  };
+  // upper bound: ~2.3 words a second plus a margin
+  timers.push(setTimeout(finish, (words / 2.3) * 1000 + 2500));
+  // nothing is playing (blocked or no voice): don't keep the learner waiting
+  timers.push(setTimeout(() => !started && !synth.speaking && finish(), 2000));
+  u.onstart = () => {
+    started = true;
+  };
+  u.onend = finish;
+  u.onerror = finish;
+  active = {
+    u,
+    cancel: () => {
+      done = true;
+      timers.forEach(clearTimeout);
+    },
+  };
+  try {
+    synth.speak(u);
+  } catch {
+    finish();
+  }
   return true;
 }
 export function stopSpeaking() {
+  active?.cancel();
+  active = null;
   try {
     window.speechSynthesis?.cancel();
   } catch {

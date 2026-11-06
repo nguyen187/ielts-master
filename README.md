@@ -9,7 +9,7 @@ All learning content is original. No account is needed: progress is stored in th
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 111 tests: content QA, core logic, sync/merge, page flows, AI voice test
+npm test           # 112 tests: content QA, core logic, sync/merge, page flows, AI voice test
 npm run build      # typecheck + production build in dist/
 npm run build:artifact  # single-file claude.ai Artifact build in dist-artifact/ielts-master.html
 ```
