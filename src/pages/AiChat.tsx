@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Markdown, PageHeader, Tabs } from '../components/ui';
 import { useAiAvailable } from '../lib/ai';
 import { IS_ARTIFACT } from '../lib/artifact';
-import { MODES, chatReply, loadChat, saveChat, speak, stopSpeaking, type ChatMode, type ChatMsg } from '../lib/chat';
+import { CRITERIA, MODES, chatReply, loadChat, loadReport, saveChat, saveReport, scoreSpeaking, speak, stopSpeaking, type ChatMode, type ChatMsg, type CriterionKey, type SpeakingReport } from '../lib/chat';
+import { openMicWindow, type MicState, type MicWindow } from '../lib/micBridge';
 import { createRecognizer, recognitionSupported } from '../lib/speech';
 import { useStore } from '../lib/store';
 
@@ -11,6 +12,10 @@ import { useStore } from '../lib/store';
 export const SILENCE_MS = 2200;
 /** On claude.ai the answer arrives through the system's dictation, which writes in bursts: wait a little longer. */
 export const DICTATION_SILENCE_MS = 3000;
+/** A Part 2 long turn has natural thinking pauses: wait longer after a cue card. */
+const CUE_CARD = /you should say|one minute to prepare|talk for (up to )?(one|two|1|2) minutes?/i;
+const waitAfter = (ask: string, base: number) => (CUE_CARD.test(ask) ? 6000 : base);
+const ENDS_TEST = /\b(end (the )?test|finish (the )?test)\b|kết thúc/i;
 
 // a phone can hand the page a fresh recording from its recorder or camera; a computer can only pick a file
 const UA = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -41,6 +46,13 @@ export default function AiChat() {
   const fileIn = useRef<HTMLInputElement>(null);
   const [stt, setStt] = useState<string | null>(null); // offline transcription in progress
   const dictating = useRef(false); // artifact: waiting for the learner's dictated answer in the text box
+  // claude.ai: the real microphone lives in a companion window (see lib/micBridge)
+  const mic = useRef<MicWindow | null>(null);
+  const [micState, setMicState] = useState<MicState | 'opening' | null>(null);
+  const clarity = useRef<number[]>([]);
+  const micLinked = useRef(false);
+  const [report, setReport] = useState<SpeakingReport | null>(() => loadReport(mode));
+  const [scoring, setScoring] = useState(false);
   const micOk = !IS_ARTIFACT && recognitionSupported();
   // artifacts cannot open the microphone themselves, but the system's dictation (Fn Fn on a Mac, the 🎤 key on a
   // phone, Win+H) types speech into the box — so the voice conversation still works there
@@ -60,6 +72,7 @@ export default function AiChat() {
     abort.current?.abort();
     asr.current?.stop();
     stopSpeaking();
+    mic.current?.close();
   }, []);
 
   // in a voice conversation, send the answer once the learner has been quiet for a moment
@@ -75,7 +88,7 @@ export default function AiChat() {
     if (!live) return;
     lastVal.current = '';
     const t = setInterval(() => {
-      if (busyRef.current) return;
+      if (busyRef.current || mic.current) return;
       // read the box itself: dictation can write into it without the events React listens to
       const val = IS_ARTIFACT ? (box.current?.value ?? '') : draftRef.current;
       if (val !== lastVal.current) {
@@ -92,7 +105,7 @@ export default function AiChat() {
       }
       const listeningNow = !!(asr.current || dictating.current);
       // a Part 2 long turn has natural thinking pauses: wait longer after a cue card
-      const wait = /you should say|one minute to prepare|talk for (up to )?(one|two|1|2) minutes?/i.test(lastAsk.current) ? 6000 : IS_ARTIFACT ? DICTATION_SILENCE_MS : SILENCE_MS;
+      const wait = waitAfter(lastAsk.current, IS_ARTIFACT ? DICTATION_SILENCE_MS : SILENCE_MS);
       const quiet = Date.now() - lastHeard.current;
       const text = val.trim();
       setHeard({ words: text ? text.split(/\s+/).length : 0, sendIn: text && listeningNow ? Math.max(0, Math.ceil((wait - quiet) / 1000)) : null, idle: listeningNow && !text ? Math.floor(quiet / 1000) : 0 });
@@ -110,6 +123,10 @@ export default function AiChat() {
   function endConversation() {
     liveRef.current = false;
     setLive(false);
+    const w = mic.current;
+    mic.current = null;
+    setMicState(null);
+    w?.close();
     stopMic();
     stopSpeaking();
     setSpeakingIdx(null);
@@ -121,6 +138,7 @@ export default function AiChat() {
     abort.current?.abort();
     setMode(m);
     setHistory(loadChat(m));
+    setReport(loadReport(m));
     setPending(null);
     setError(null);
     setDraft('');
@@ -166,6 +184,11 @@ export default function AiChat() {
   function sayThenListen(text: string, idx: number) {
     stopMic();
     if (!liveRef.current) return;
+    if (mic.current) {
+      mic.current.say(text, { wait: waitAfter(text, SILENCE_MS) });
+      setSpeakingIdx(idx);
+      return;
+    }
     const listen = () => {
       setSpeakingIdx((cur) => (cur === idx ? null : cur));
       if (liveRef.current && !busyRef.current) startMic();
@@ -175,7 +198,7 @@ export default function AiChat() {
   }
 
   /** A recording made with the device (no microphone access on claude.ai): transcribe it here, then send it. */
-  async function onRecording(file: File) {
+  async function onRecording(file: Blob) {
     stopSpeaking();
     setSpeakingIdx(null);
     setError(null);
@@ -209,9 +232,74 @@ export default function AiChat() {
     </button>
   );
 
+  /** The question to put to the learner when the voice conversation (re)starts. */
+  function resume() {
+    const last = shown[shown.length - 1];
+    if (last.role === 'assistant') sayThenListen(last.content, shown.length - 2);
+    else if (mic.current) mic.current.listen(SILENCE_MS);
+    else startMic();
+  }
+
+  /** claude.ai: open the microphone window. Must run straight from the click. */
+  function openMic(): boolean {
+    const w = openMicWindow({
+      onLinked: () => {
+        micLinked.current = true;
+      },
+      onReady: () => {
+        setMicState('idle');
+        if (liveRef.current && !busyRef.current) latest.current.resume();
+      },
+      onState: (st) => {
+        setMicState(st);
+        if (st !== 'speaking') setSpeakingIdx(null);
+        setListening(st === 'listening');
+      },
+      onInterim: (t) => setDraft(t),
+      onAnswer: (t, conf) => {
+        if (conf) clarity.current.push(conf);
+        if (t.trim()) void latest.current.send(t);
+        else mic.current?.listen();
+      },
+      onAudio: (b) => void latest.current.onRecording(b),
+      onError: (msg) => setError(msg),
+      onClosed: () => {
+        if (mic.current !== w) return;
+        mic.current = null;
+        setMicState(null);
+        liveRef.current = false;
+        setLive(false);
+        setListening(false);
+        setSpeakingIdx(null);
+      },
+    });
+    if (!w) return false;
+    mic.current = w;
+    setMicState('opening');
+    micLinked.current = false;
+    // no word from the window: it lost its link back to this page
+    setTimeout(() => {
+      if (mic.current === w && !micLinked.current)
+        setError('Cửa sổ micro đã mở nhưng không kết nối được với app. Đóng nó, rồi bấm lại nút bắt đầu. Nếu vẫn lỗi, dùng đọc chính tả như hướng dẫn.');
+    }, 6000);
+    return true;
+  }
+
   function startConversation() {
     setError(null);
-    if (IS_ARTIFACT) void import('../lib/transcribe').then((m) => m.preloadTranscriber());
+    if (IS_ARTIFACT) {
+      liveRef.current = true;
+      setLive(true);
+      if (mic.current?.isOpen()) {
+        mic.current.focus();
+        if (mic.current.ready()) resume();
+        return;
+      }
+      if (openMic()) return; // the questions start once the learner allows the microphone there
+      // the browser blocked the window: fall back to the system's dictation
+      setError('Trình duyệt đã chặn cửa sổ micro. Cho phép cửa sổ bật lên (pop-up) cho claude.ai rồi bấm lại — hoặc dùng đọc chính tả như hướng dẫn bên dưới.');
+      void import('../lib/transcribe').then((m) => m.preloadTranscriber());
+    }
     liveRef.current = true;
     setLive(true);
     const last = shown[shown.length - 1];
@@ -221,6 +309,10 @@ export default function AiChat() {
 
   /** Stop the AI talking and let the learner answer straight away. */
   function interrupt() {
+    if (mic.current) {
+      mic.current.listen();
+      return;
+    }
     stopSpeaking();
     setSpeakingIdx(null);
     if (liveRef.current) startMic();
@@ -247,6 +339,7 @@ export default function AiChat() {
     setDraft('');
     setError(null);
     setPending('');
+    mic.current?.thinking();
     const ctrl = new AbortController();
     abort.current = ctrl;
     try {
@@ -255,9 +348,13 @@ export default function AiChat() {
       const done: ChatMsg[] = reply ? [...next, { role: 'assistant', content: reply }] : next;
       setHistory(done);
       saveChat(mode, done);
-      if (liveRef.current) {
+      const ending = mode === 'examiner' && ENDS_TEST.test(content);
+      if (ending) {
+        mic.current?.say(reply.replace(/\n[\s\S]*/, ''), { listen: false });
+        void getScore(done);
+      } else if (liveRef.current) {
         if (reply) sayThenListen(reply, done.length - 1);
-        else startMic();
+        else resume();
       } else if (reply && autoRead && speak(reply, () => setSpeakingIdx(null))) setSpeakingIdx(done.length - 1);
     } catch (e) {
       if (ctrl.signal.aborted) return;
@@ -271,6 +368,30 @@ export default function AiChat() {
     }
   }
   sendRef.current = () => void send();
+
+  async function getScore(h = history) {
+    if (scoring) return;
+    setScoring(true);
+    setError(null);
+    mic.current?.thinking('Đang chấm điểm…');
+    try {
+      const c = clarity.current;
+      const r = await scoreSpeaking({ mode, history: h, apiKey, clarity: c.length ? c.reduce((a, b) => a + b, 0) / c.length : null });
+      setReport(r);
+      saveReport(mode, r);
+      mic.current?.say(`Your estimated overall band is ${r.overall}. Fluency ${r.bands.fc}, vocabulary ${r.bands.lr}, grammar ${r.bands.gra}, pronunciation ${r.bands.p}. Your full feedback is in the app.`, { listen: false });
+      setTimeout(() => document.getElementById('score-card')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 50);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not score this session.');
+      mic.current?.stop();
+    } finally {
+      setScoring(false);
+    }
+  }
+  const answers = history.filter((x) => x.role === 'user').length;
+  // the mic window's callbacks outlive the render that set them up: reach the current state through this
+  const latest = useRef({ send, onRecording, resume });
+  latest.current = { send, onRecording, resume };
 
   function stopReply() {
     const partial = pending?.trim();
@@ -292,6 +413,9 @@ export default function AiChat() {
     setError(null);
     setHistory([]);
     saveChat(mode, []);
+    setReport(null);
+    saveReport(mode, null);
+    clarity.current = [];
   }
 
   const m = MODES[mode];
@@ -379,7 +503,10 @@ export default function AiChat() {
                 </button>
                 {IS_ARTIFACT ? (
                   <div className="muted max-w-md text-xs">
-                    <p>AI đọc câu hỏi thành tiếng, bạn trả lời bằng giọng nói. claude.ai không cho trang tự bật micro, nên:</p>
+                    <p>
+                      Bấm nút trên: một <b>cửa sổ micro</b> nhỏ mở ra. Trong đó bấm <b>Bật mic &amp; bắt đầu</b>, cho phép micro — giám khảo đọc câu hỏi, bạn nói, ngừng nói là tự gửi. Câu trả lời và nhận xét hiện ở đây.
+                    </p>
+                    <p className="mt-1">Nếu cửa sổ không mở (bị chặn pop-up):</p>
                     {IS_PHONE ? (
                       <p className="mt-1">
                         <b>🎙️ Record answer</b> mở ngay {IS_IOS ? 'camera (quay video — app chỉ lấy tiếng)' : 'máy ghi âm'} của điện thoại. Nói xong bấm dùng bản ghi, app tự nhận dạng rồi gửi. Hoặc bấm 🎤 trên bàn phím để đọc chính tả.
@@ -399,15 +526,27 @@ export default function AiChat() {
             ) : (
               <div className="flex flex-wrap items-center gap-2" role="status">
                 <span className="flex items-center gap-2 font-medium">
-                  {speakingIdx !== null ? (
+                  {micState === 'opening' ? (
+                    <>🪟 Cửa sổ micro đã mở — bấm <b>Bật mic &amp; bắt đầu</b> trong cửa sổ đó và cho phép micro.</>
+                  ) : micState === 'paused' ? (
+                    <>⏸ Paused in the mic window</>
+                  ) : scoring ? (
+                    <>📊 Scoring your answers…</>
+                  ) : speakingIdx !== null || micState === 'speaking' ? (
                     <>🔊 {mode === 'examiner' ? 'Examiner is speaking…' : 'AI is speaking…'}</>
                   ) : busy ? (
                     <>💭 Thinking…</>
                   ) : listening ? (
                     <>
-                      <span className="h-3 w-3 animate-pulse rounded-full bg-rose-600" aria-hidden /> {IS_ARTIFACT ? 'Your turn — speak now' : 'Listening — speak now'}
+                      <span className="h-3 w-3 animate-pulse rounded-full bg-rose-600" aria-hidden /> {mic.current ? '🎙️ Listening — speak now' : IS_ARTIFACT ? 'Your turn — speak now' : 'Listening — speak now'}
                       <span className="muted text-xs font-normal">
-                        {heard.words ? `heard ${heard.words} word${heard.words > 1 ? 's' : ''}${heard.sendIn !== null ? ` · sending in ${heard.sendIn}s` : ''}` : '(sends after a short pause)'}
+                        {mic.current
+                          ? draft.trim()
+                            ? `“${draft.trim().split(/\s+/).slice(-8).join(' ')}”`
+                            : '(sends after a short pause)'
+                          : heard.words
+                            ? `heard ${heard.words} word${heard.words > 1 ? 's' : ''}${heard.sendIn !== null ? ` · sending in ${heard.sendIn}s` : ''}`
+                            : '(sends after a short pause)'}
                       </span>
                     </>
                   ) : (
@@ -420,22 +559,36 @@ export default function AiChat() {
                     ⏭ Answer now
                   </button>
                 )}
-                {(listening || speakingIdx !== null) && draft.trim() && (
+                {mic.current && (
+                  <button className="btn-secondary" onClick={() => mic.current?.focus()}>
+                    🪟 Mic window
+                  </button>
+                )}
+                {!mic.current && (listening || speakingIdx !== null) && draft.trim() && (
                   <button className="btn-primary" onClick={() => void send()}>
                     Send now ➤
                   </button>
                 )}
-                {IS_ARTIFACT && recordButton()}
+                {IS_ARTIFACT && !mic.current && recordButton()}
                 <button className="btn-secondary" onClick={endConversation}>
                   ■ End
                 </button>
-                {IS_ARTIFACT && listening && heard.idle >= 6 && (
+                {IS_ARTIFACT && !mic.current && listening && heard.idle >= 6 && (
                   <p className="w-full rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-100">
                     Chưa nghe thấy gì. Bấm <b>🎙️ Record answer</b> để ghi âm câu trả lời, hoặc bật <b>đọc chính tả</b> rồi nói: <b>Mac</b> bấm <kbd>Fn</kbd> 2 lần · <b>Windows</b> <kbd>Win</kbd>+<kbd>H</kbd> · <b>điện thoại</b> bấm 🎤 trên bàn phím. Chữ sẽ hiện trong ô bên dưới.
                   </p>
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {mode !== 'tutor' && answers >= 2 && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
+            <button className="btn-primary" onClick={() => void getScore()} disabled={scoring || busy || !ai.available}>
+              {scoring ? 'Scoring…' : report ? '📊 Score again' : '📊 Chấm điểm & nhận xét'}
+            </button>
+            <span className="muted text-xs">Band cho 4 tiêu chí, điểm tổng, điểm mạnh/yếu và câu nâng cấp — dựa trên {answers} câu trả lời của bạn.</span>
           </div>
         )}
 
@@ -519,6 +672,7 @@ export default function AiChat() {
           </p>
         </form>
       </div>
+      {report && <ScoreCard r={report} />}
       {mode === 'examiner' && <p className="muted mt-3 text-xs">Say or type “end test” at any time to finish and get your estimated band. Nói hoặc gõ “end test” để kết thúc và nhận nhận xét, band ước tính.</p>}
     </div>
   );
@@ -551,4 +705,65 @@ export function splitFix(text: string): [string, string] {
   const i = text.indexOf('✏️');
   if (i <= 0) return [text, ''];
   return [text.slice(0, i).trim(), text.slice(i).trim()];
+}
+
+function ScoreCard({ r }: { r: SpeakingReport }) {
+  const keys = Object.keys(CRITERIA) as CriterionKey[];
+  return (
+    <section id="score-card" className="card mt-4 p-4" aria-label="Your speaking score">
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="flex h-20 w-20 flex-none flex-col items-center justify-center rounded-2xl bg-brand-600 text-white">
+          <span className="text-3xl font-bold leading-none">{r.overall.toFixed(1)}</span>
+          <span className="text-[10px] uppercase tracking-wider">overall</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold">Estimated Speaking band</h2>
+          <p className="muted text-xs">
+            {r.answers} answers · {r.words} words · {new Date(r.at).toLocaleString()}. Ước tính bởi AI, phát âm chỉ ước lượng từ độ rõ khi nhận dạng giọng.
+          </p>
+          {r.summary && <p className="mt-1 text-sm">{r.summary}</p>}
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {keys.map((k) => (
+          <div key={k} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-sm font-semibold">{CRITERIA[k]}</span>
+              <span className="text-xl font-bold text-brand-600 dark:text-brand-300">{r.bands[k].toFixed(1)}</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+              <div className="h-full bg-brand-600" style={{ width: `${(r.bands[k] / 9) * 100}%` }} />
+            </div>
+            {r.comments[k] && <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{r.comments[k]}</p>}
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {r.strengths.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">✅ Strengths</h3>
+            <ul className="mt-1 list-disc pl-5 text-sm">{r.strengths.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </div>
+        )}
+        {r.weaknesses.length > 0 && (
+          <div>
+            <h3 className="text-sm font-semibold text-rose-700 dark:text-rose-400">⚠️ To improve</h3>
+            <ul className="mt-1 list-disc pl-5 text-sm">{r.weaknesses.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </div>
+        )}
+      </div>
+      {r.upgrades.length > 0 && (
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold">✏️ Say it better</h3>
+          <ul className="mt-1 flex flex-col gap-2 text-sm">
+            {r.upgrades.map((u, i) => (
+              <li key={i} className="rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-950/40">
+                <span className="text-slate-500 line-through decoration-rose-400">{u.said}</span> → <b>{u.better}</b>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
 }

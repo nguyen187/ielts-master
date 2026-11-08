@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IELTS Master · Mic</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --fg:#0f172a; --muted:#64748b; --brand:#4f46e5; --rose:#e11d48; --ok:#059669; --line:#e2e8f0; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0b1020; --card:#131a2e; --fg:#e2e8f0; --muted:#94a3b8; --brand:#818cf8; --rose:#fb7185; --ok:#34d399; --line:#24304d; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width: 460px; margin: 0 auto; padding: 16px; display:flex; flex-direction:column; gap:12px; min-height:100vh; }
+  h1 { font-size:16px; margin:0; display:flex; align-items:center; gap:8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px; }
+  .label { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:4px; }
+  #ask { font-size:16px; white-space:pre-wrap; }
+  #heard { font-size:16px; min-height:48px; white-space:pre-wrap; }
+  #heard .interim { color:var(--muted); }
+  .status { display:flex; align-items:center; gap:10px; font-weight:600; font-size:17px; }
+  .dot { width:14px; height:14px; border-radius:50%; background:var(--muted); flex:none; }
+  .listening .dot { background:var(--rose); animation:pulse 1s infinite; }
+  .speaking .dot { background:var(--brand); animation:pulse 1.4s infinite; }
+  .thinking .dot { background:#f59e0b; animation:pulse .7s infinite; }
+  @keyframes pulse { 50% { opacity:.3; transform:scale(.8); } }
+  #meter { height:6px; border-radius:3px; background:var(--line); overflow:hidden; }
+  #meter i { display:block; height:100%; width:0; background:var(--ok); transition:width .08s; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; }
+  button { font:inherit; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--fg); padding:10px 14px; cursor:pointer; }
+  button.primary { background:var(--brand); border-color:var(--brand); color:#fff; font-weight:600; }
+  button.big { width:100%; padding:16px; font-size:18px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .muted { color:var(--muted); font-size:13px; }
+  .err { color:var(--rose); font-size:14px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎙️ IELTS Master — Mic</h1>
+
+  <section id="intro" class="card">
+    <p style="margin-top:0"><b>Cửa sổ micro</b> cho bài thi Speaking trên claude.ai. Giám khảo AI đọc câu hỏi ở đây, bạn trả lời bằng micro, câu trả lời tự gửi về app khi bạn ngừng nói.</p>
+    <button id="start" class="primary big">🎙️ Bật mic &amp; bắt đầu</button>
+    <p class="muted">Trình duyệt sẽ hỏi quyền dùng micro: chọn <b>Cho phép</b>. Để cửa sổ này mở trong lúc thi. Nên đeo tai nghe.</p>
+  </section>
+
+  <section id="live" hidden>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div id="status" class="status"><span class="dot"></span><span id="statusText">…</span></div>
+      <div id="meter"><i></i></div>
+      <div class="muted" id="hint"></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="label">Examiner</div>
+      <div id="ask">…</div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <div class="label">You</div>
+      <div id="heard"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="skip" hidden>⏭ Trả lời ngay</button>
+      <button id="sendNow" class="primary" hidden>Gửi ngay ➤</button>
+      <button id="pause">⏸ Tạm dừng</button>
+    </div>
+  </section>
+
+  <p id="err" class="err" role="alert"></p>
+  <p id="noOpener" class="card" hidden>Cửa sổ này phải được mở từ nút <b>🎙️ Bật mic</b> trong app IELTS Master trên claude.ai. Hãy đóng nó và bấm lại nút đó.</p>
+</main>
+<script>
+(() => {
+  'use strict';
+  const APP = 'ielts-mic';
+  const $ = (id) => document.getElementById(id);
+  const opener = window.opener;
+  let linked = false; // the app answered our hello
+  const post = (msg) => { try { opener && opener.postMessage(Object.assign({ app: APP }, msg), '*'); } catch (e) {} };
+
+  if (!opener) { $('noOpener').hidden = false; $('intro').hidden = true; }
+
+  // say hello until the app answers (it may still be loading its listener)
+  const hello = setInterval(() => { if (linked || !window.opener) return clearInterval(hello); post({ type: 'hello' }); }, 500);
+  post({ type: 'hello' });
+  window.addEventListener('beforeunload', () => post({ type: 'closed' }));
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let state = 'idle'; // idle | speaking | listening | thinking | paused
+  let wait = 2200;    // quiet time (ms) before the answer is sent
+  let rec = null, finalText = '', interimText = '', confSum = 0, confN = 0, lastHeard = 0, wantListen = false;
+  let stream = null, analyser = null, media = null, chunks = [], voiced = false;
+  let utter = null;
+
+  function setState(s, hint) {
+    state = s;
+    const st = $('status');
+    st.className = 'status ' + s;
+    $('statusText').textContent = { idle: 'Sẵn sàng', speaking: '🔊 Giám khảo đang nói…', listening: 'Đến lượt bạn — nói đi', thinking: '💭 Đang chấm/nghĩ…', paused: '⏸ Đã tạm dừng' }[s] || s;
+    $('hint').textContent = hint || (s === 'listening' ? 'Ngừng nói ' + Math.round(wait / 1000) + ' giây là tự gửi.' : '');
+    $('skip').hidden = s !== 'speaking';
+    $('pause').textContent = s === 'paused' ? '▶ Tiếp tục' : '⏸ Tạm dừng';
+    post({ type: 'state', state: s });
+  }
+  function showHeard() {
+    const h = $('heard');
+    h.textContent = finalText;
+    if (interimText) { const sp = document.createElement('span'); sp.className = 'interim'; sp.textContent = (finalText ? ' ' : '') + interimText; h.appendChild(sp); }
+    $('sendNow').hidden = !(finalText + interimText).trim();
+  }
+
+  /* ---------- the level meter (also the voice detector when there is no speech recognition) ---------- */
+  function meterLoop() {
+    if (!analyser) return;
+    const buf = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(buf);
+    let sum = 0; for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+    const rms = Math.sqrt(sum / buf.length);
+    $('meter').firstElementChild.style.width = Math.min(100, rms * 400) + '%';
+    if (!SR && state === 'listening' && rms > 0.04) { voiced = true; lastHeard = Date.now(); }
+    requestAnimationFrame(meterLoop);
+  }
+
+  /* ---------- listening ---------- */
+  function listen() {
+    stopSpeaking();
+    finalText = ''; interimText = ''; confSum = 0; confN = 0; voiced = false;
+    showHeard();
+    lastHeard = Date.now();
+    wantListen = true;
+    setState('listening');
+    if (SR) startRec(); else startMedia();
+  }
+  function startRec() {
+    if (rec) return;
+    const r = new SR();
+    r.lang = 'en-US'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    let base = finalText ? finalText + ' ' : '';
+    r.onresult = (e) => {
+      let fin = '', int = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) { fin += res[0].transcript; if (res[0].confidence > 0) { confSum += res[0].confidence; confN++; } }
+        else int += res[0].transcript;
+      }
+      finalText = (base + fin).replace(/\s+/g, ' ').trim();
+      interimText = int.trim();
+      lastHeard = Date.now();
+      showHeard();
+      post({ type: 'interim', text: (finalText + ' ' + interimText).trim() });
+    };
+    r.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { fail('Micro bị chặn. Bấm biểu tượng 🔒/🎙️ trên thanh địa chỉ, cho phép micro rồi tải lại cửa sổ này.'); wantListen = false; return; }
+      if (e.error === 'network') { fail('Nhận dạng giọng nói cần Internet. Kiểm tra mạng rồi thử lại.'); return; }
+      fail('Lỗi micro: ' + e.error);
+    };
+    // Chrome ends a session by itself every so often: keep going while it is still our turn
+    r.onend = () => {
+      rec = null;
+      if (wantListen && state === 'listening') { finalText = (finalText + ' ' + interimText).trim(); interimText = ''; setTimeout(() => wantListen && state === 'listening' && startRec(), 150); }
+    };
+    rec = r;
+    try { r.start(); } catch (e) { rec = null; }
+  }
+  function startMedia() {
+    if (!stream || media) return;
+    chunks = [];
+    try { media = new MediaRecorder(stream); } catch (e) { fail('Trình duyệt này không ghi âm được. Dùng Chrome hoặc Edge.'); return; }
+    media.ondataavailable = (e) => e.data && e.data.size && chunks.push(e.data);
+    media.start(250);
+  }
+  function stopListening() {
+    wantListen = false;
+    if (rec) { try { rec.stop(); } catch (e) {} rec = null; }
+    if (media) { try { media.stop(); } catch (e) {} }
+  }
+  function finish() {
+    if (state !== 'listening') return;
+    const text = (finalText + ' ' + interimText).replace(/\s+/g, ' ').trim();
+    stopListening();
+    setState('thinking');
+    if (SR) {
+      post({ type: 'answer', text, confidence: confN ? confSum / confN : null });
+    } else {
+      const m = media; media = null;
+      const done = () => { const blob = new Blob(chunks, { type: (m && m.mimeType) || 'audio/webm' }); post({ type: 'audio', blob }); };
+      if (m && m.state !== 'inactive') m.addEventListener('stop', done, { once: true }); else done();
+    }
+  }
+  setInterval(() => {
+    if (state !== 'listening') return;
+    const has = SR ? !!(finalText + interimText).trim() : voiced;
+    const quiet = Date.now() - lastHeard;
+    if (has) $('hint').textContent = quiet > 700 ? 'Gửi sau ' + Math.max(0, Math.ceil((wait - quiet) / 1000)) + ' giây… (nói tiếp để huỷ)' : 'Đang nghe…';
+    else if (quiet > 8000) $('hint').textContent = 'Chưa nghe thấy gì. Kiểm tra micro (thanh xanh phải nhảy khi bạn nói).';
+    if (has && quiet > wait) finish();
+  }, 250);
+
+  /* ---------- speaking ---------- */
+  function pickVoice() {
+    const vs = speechSynthesis.getVoices();
+    const en = vs.filter((v) => /^en/i.test(v.lang));
+    return en.find((v) => /natural|neural|premium|enhanced/i.test(v.name) && /en-GB/i.test(v.lang)) || en.find((v) => /en-GB/i.test(v.lang)) || en.find((v) => /google|natural/i.test(v.name)) || en[0];
+  }
+  function stopSpeaking() { try { speechSynthesis.cancel(); } catch (e) {} utter = null; }
+  function say(text, then) {
+    stopListening();
+    $('ask').textContent = text;
+    const clean = text.replace(/✏️[\s\S]*$/, '').replace(/[*_#`>]/g, '').trim();
+    if (!clean || !('speechSynthesis' in window)) return then();
+    stopSpeaking();
+    setState('speaking');
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = 'en-GB'; u.rate = 0.95;
+    const v = pickVoice(); if (v) u.voice = v;
+    let done = false;
+    const end = () => { if (done || utter !== u) return; done = true; utter = null; then(); };
+    const limit = setTimeout(end, (clean.split(/\s+/).length / 2.2) * 1000 + 3000);
+    u.onend = () => { clearTimeout(limit); end(); };
+    u.onerror = () => { clearTimeout(limit); end(); };
+    utter = u;
+    speechSynthesis.speak(u);
+  }
+
+  function fail(msg) { $('err').textContent = msg; post({ type: 'error', message: msg }); }
+
+  /* ---------- the app talks to us ---------- */
+  window.addEventListener('message', (e) => {
+    if (e.source !== window.opener) return;
+    const d = e.data;
+    if (!d || d.app !== APP) return;
+    $('err').textContent = '';
+    if (d.type === 'welcome') { linked = true; if (d.ask) $('ask').textContent = d.ask; return; }
+    if (state === 'paused' && d.type !== 'stop') { pendingMsg = d; return; }
+    handle(d);
+  });
+  let pendingMsg = null;
+  function handle(d) {
+    if (typeof d.wait === 'number') wait = Math.max(1200, Math.min(10000, d.wait));
+    if (d.type === 'say') say(String(d.text || ''), d.listen === false ? () => setState('idle') : listen);
+    else if (d.type === 'listen') listen();
+    else if (d.type === 'thinking') { stopListening(); setState('thinking', d.text || ''); }
+    else if (d.type === 'stop') { stopListening(); stopSpeaking(); setState('idle', d.text || ''); }
+    else if (d.type === 'close') window.close();
+  }
+
+  $('start').onclick = async () => {
+    $('start').disabled = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream);
+      analyser = ctx.createAnalyser(); analyser.fftSize = 1024; src.connect(analyser);
+      requestAnimationFrame(meterLoop);
+    } catch (e) {
+      $('start').disabled = false;
+      return fail('Không mở được micro (' + (e && e.name || 'lỗi') + '). Cho phép micro cho trang này rồi bấm lại.');
+    }
+    // unlock speech in this window (needs the click)
+    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}
+    $('intro').hidden = true; $('live').hidden = false;
+    setState('idle', 'Đang kết nối với app…');
+    post({ type: 'ready', speech: !!SR });
+  };
+  $('skip').onclick = () => { stopSpeaking(); listen(); };
+  $('sendNow').onclick = () => { lastHeard = 0; finish(); };
+  $('pause').onclick = () => {
+    if (state === 'paused') { setState('idle'); const m = pendingMsg; pendingMsg = null; if (m) handle(m); else listen(); return; }
+    stopListening(); stopSpeaking(); setState('paused', 'Bấm Tiếp tục khi sẵn sàng.');
+  };
+})();
+</script>
+</body>
+</html>

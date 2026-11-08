@@ -198,3 +198,116 @@ export function stopSpeaking() {
     /* ignore */
   }
 }
+
+/* ---------------- band score and feedback for a speaking session ---------------- */
+
+export type CriterionKey = 'fc' | 'lr' | 'gra' | 'p';
+export const CRITERIA: Record<CriterionKey, string> = {
+  fc: 'Fluency & Coherence',
+  lr: 'Lexical Resource',
+  gra: 'Grammatical Range & Accuracy',
+  p: 'Pronunciation',
+};
+export interface SpeakingReport {
+  overall: number;
+  bands: Record<CriterionKey, number>;
+  comments: Record<CriterionKey, string>;
+  strengths: string[];
+  weaknesses: string[];
+  upgrades: { said: string; better: string }[];
+  summary: string; // in Vietnamese
+  answers: number;
+  words: number;
+  at: number;
+}
+
+/** IELTS rounding: the mean of the four bands to the nearest half band (.25 rounds up to .5, .75 up to the next band). */
+export function overallBand(b: number[]): number {
+  const mean = b.reduce((s, x) => s + x, 0) / b.length;
+  return Math.floor(mean * 2 + 0.5 + 1e-9) / 2;
+}
+const half = (x: unknown) => {
+  const n = typeof x === 'number' ? x : parseFloat(String(x));
+  return Number.isFinite(n) ? Math.max(0, Math.min(9, Math.round(n * 2) / 2)) : 0;
+};
+const strs = (x: unknown, n: number) => (Array.isArray(x) ? x.map(String).filter(Boolean).slice(0, n) : []);
+
+/** Read the grader's JSON (tolerating text around it) into a report. */
+export function parseReport(text: string, answers: number, words: number): SpeakingReport {
+  const s = text.indexOf('{');
+  const e = text.lastIndexOf('}');
+  if (s < 0 || e <= s) throw new Error('The examiner’s report could not be read. Try again.');
+  const j = JSON.parse(text.slice(s, e + 1)) as Record<string, unknown>;
+  const keys = Object.keys(CRITERIA) as CriterionKey[];
+  const bandsIn = (j.bands ?? {}) as Record<string, unknown>;
+  const commentsIn = (j.comments ?? {}) as Record<string, unknown>;
+  const bands = Object.fromEntries(keys.map((k) => [k, half(bandsIn[k])])) as Record<CriterionKey, number>;
+  const comments = Object.fromEntries(keys.map((k) => [k, String(commentsIn[k] ?? '')])) as Record<CriterionKey, string>;
+  const upgrades = Array.isArray(j.upgrades)
+    ? (j.upgrades as Record<string, unknown>[]).filter((u) => u && u.said && u.better).slice(0, 5).map((u) => ({ said: String(u.said), better: String(u.better) }))
+    : [];
+  return {
+    overall: overallBand(keys.map((k) => bands[k])),
+    bands,
+    comments,
+    strengths: strs(j.strengths, 4),
+    weaknesses: strs(j.weaknesses, 4),
+    upgrades,
+    summary: String(j.summary ?? ''),
+    answers,
+    words,
+    at: Date.now(),
+  };
+}
+
+const GRADER = `You are a senior IELTS Speaking examiner. Below is the transcript of a speaking session; the candidate's turns were captured by speech recognition, so ignore missing punctuation and obvious recognition slips. Grade ONLY the candidate's turns against the public IELTS Speaking band descriptors. Be honest and calibrated, not generous: short or memorised answers cannot score above 5.5 for Fluency & Coherence; very few turns limit how high any band can be.
+Pronunciation: you cannot hear the audio. Estimate it cautiously from how reliably the speech was recognised (recognition clarity is given below when known) and mark the comment as an estimate.
+Reply with ONLY this JSON, no other text:
+{"bands":{"fc":0-9,"lr":0-9,"gra":0-9,"p":0-9},"comments":{"fc":"…","lr":"…","gra":"…","p":"…"},"strengths":["…"],"weaknesses":["…"],"upgrades":[{"said":"exact words they used","better":"a band 7+ version"}],"summary":"…"}
+Bands in steps of 0.5. Each comment: 1–2 sentences in English quoting the candidate's own words. 2–3 strengths and 2–3 weaknesses, each specific. 3 upgrades taken from what they actually said. "summary": 2–3 sentences IN VIETNAMESE telling them what to work on first.`;
+
+/** Grade the learner's answers in a speaking session: four bands, overall and feedback. */
+export async function scoreSpeaking(opts: { mode: ChatMode; history: ChatMsg[]; apiKey?: string; clarity?: number | null; signal?: AbortSignal }): Promise<SpeakingReport> {
+  const turns = [{ role: 'assistant', content: MODES[opts.mode].opener }, ...opts.history];
+  const userTurns = opts.history.filter((m) => m.role === 'user');
+  if (userTurns.length < 2) throw new Error('Answer a few questions first, then ask for your score.');
+  const words = userTurns.reduce((s, m) => s + m.content.split(/\s+/).filter(Boolean).length, 0);
+  const transcript = turns.map((m) => `${m.role === 'user' ? 'CANDIDATE' : 'EXAMINER'}: ${m.content}`).join('\n');
+  const prompt = `${GRADER}\n\nCandidate turns: ${userTurns.length}, words spoken: ${words}.${opts.clarity ? ` Recognition clarity: ${Math.round(opts.clarity * 100)}%.` : ''}\n\nTRANSCRIPT\n${transcript}`;
+  let text: string;
+  if (IS_ARTIFACT) {
+    const sample = claudeSample();
+    if (!sample) throw new Error('Claude is not available on this page.');
+    try {
+      text = (await sample(prompt as never, { cache: false, modelTier: 'default', signal: opts.signal })).text;
+    } catch (e) {
+      if (isSampleError(e)) throw new Error(describeSampleError(e));
+      throw e;
+    }
+  } else {
+    if (!opts.apiKey) throw new Error('Add your Anthropic API key in Settings to get a score.');
+    const client = new Anthropic({ apiKey: opts.apiKey, dangerouslyAllowBrowser: true });
+    const msg = await client.messages.create({ model: MODEL, max_tokens: 2000, output_config: { effort: 'low' }, messages: [{ role: 'user', content: prompt }] } as never, { signal: opts.signal });
+    text = (msg as { content: { type: string; text?: string }[] }).content.map((c) => (c.type === 'text' ? c.text : '')).join('');
+  }
+  return parseReport(text, userTurns.length, words);
+}
+
+const RKEY = 'ielts-master:speaking-reports';
+export function loadReport(mode: ChatMode): SpeakingReport | null {
+  try {
+    return (JSON.parse(localStorage.getItem(RKEY) ?? '{}') as Record<string, SpeakingReport>)[mode] ?? null;
+  } catch {
+    return null;
+  }
+}
+export function saveReport(mode: ChatMode, r: SpeakingReport | null) {
+  try {
+    const all = JSON.parse(localStorage.getItem(RKEY) ?? '{}') as Record<string, unknown>;
+    if (r) all[mode] = r;
+    else delete all[mode];
+    localStorage.setItem(RKEY, JSON.stringify(all));
+  } catch {
+    /* ignore */
+  }
+}

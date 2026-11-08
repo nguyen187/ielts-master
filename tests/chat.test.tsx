@@ -143,3 +143,19 @@ describe('chat with AI', () => {
     expect(splitFix('No fixes here.')).toEqual(['No fixes here.', '']);
   });
 });
+
+import { overallBand, parseReport } from '../src/lib/chat';
+describe('speaking score', () => {
+  it('rounds the overall band the IELTS way', () => {
+    expect(overallBand([6, 6, 6, 6.5])).toBe(6); // 6.125
+    expect(overallBand([6, 6, 6.5, 6.5])).toBe(6.5); // 6.25
+    expect(overallBand([6.5, 6.5, 7, 7])).toBe(7); // 6.75
+    expect(overallBand([7, 7, 7, 6.5])).toBe(7); // 6.875
+  });
+  it('reads and clamps the grader JSON', () => {
+    const r = parseReport('```json\n{"bands":{"fc":"7","lr":9.7,"gra":5.3,"p":null},"strengths":["a"],"upgrades":[{"said":"x"}]}\n```', 3, 40);
+    expect(r.bands).toEqual({ fc: 7, lr: 9, gra: 5.5, p: 0 });
+    expect(r.upgrades).toEqual([]);
+    expect(r.answers).toBe(3);
+  });
+});

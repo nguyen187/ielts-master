@@ -3,9 +3,14 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // the claude.ai build: no microphone for the page, Claude on the viewer's account
-vi.mock('../src/lib/artifact', async (orig) => ({ ...(await orig<typeof import('../src/lib/artifact')>()), IS_ARTIFACT: true }));
 vi.mock('../src/lib/ai', async (orig) => ({ ...(await orig<typeof import('../src/lib/ai')>()), useAiAvailable: () => ({ available: true, via: 'claude', state: 'ready' }) }));
 const reply = vi.fn();
+const sampleText = { value: '' };
+vi.mock('../src/lib/artifact', async (orig) => ({
+  ...(await orig<typeof import('../src/lib/artifact')>()),
+  IS_ARTIFACT: true,
+  claudeSample: () => Object.assign(async () => ({ text: sampleText.value, truncated: false }), { json: async () => ({}) }),
+}));
 const transcribe = vi.fn();
 vi.mock('../src/lib/transcribe', () => ({ transcribe: (f: Blob, p: unknown) => transcribe(f, p), preloadTranscriber: () => undefined }));
 vi.mock('../src/lib/chat', async (orig) => ({ ...(await orig<typeof import('../src/lib/chat')>()), chatReply: (o: unknown) => reply(o) }));
@@ -39,7 +44,8 @@ describe('voice test on claude.ai (artifact)', () => {
         <AiChat />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/claude.ai không cho trang tự bật micro/)).toBeInTheDocument();
+    expect(screen.getByText(/cửa sổ micro/)).toBeInTheDocument();
+    window.open = () => null; // pop-up blocked: falls back to dictation
     fireEvent.click(screen.getByRole('button', { name: /Start the speaking test/ }));
     expect(spoken[0]).toMatch(/full name/);
     act(() => utter!.onend!());
@@ -88,6 +94,7 @@ describe('voice test on claude.ai (artifact)', () => {
         <AiChat />
       </MemoryRouter>,
     );
+    window.open = () => null;
     fireEvent.click(screen.getByRole('button', { name: /Start the speaking test/ }));
     expect(screen.getByText(/Examiner is speaking/)).toBeInTheDocument();
     for (let i = 0; i < 8; i++)
@@ -140,5 +147,54 @@ describe('voice test on claude.ai (artifact)', () => {
     fireEvent.change(screen.getByLabelText('Recording of your answer'), { target: { files: [new File(['x'], 'a.m4a')] } });
     expect(await screen.findByText(/No words were recognised/)).toBeInTheDocument();
     expect(reply).not.toHaveBeenCalled();
+  });
+
+  it('talks through the microphone window: question spoken there, live answer sent back, reply spoken', async () => {
+    const toMic: Record<string, unknown>[] = [];
+    const popup = { closed: false, postMessage: (m: Record<string, unknown>) => toMic.push(m), focus: () => undefined, close: () => undefined };
+    window.open = vi.fn(() => popup as unknown as Window);
+    const fromMic = (data: Record<string, unknown>) =>
+      act(() => {
+        window.dispatchEvent(new MessageEvent('message', { data: { app: 'ielts-mic', ...data }, source: popup as unknown as Window }));
+      });
+    reply.mockResolvedValue('Thank you. Where are you from?');
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AiChat />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Start the speaking test/ }));
+    expect(window.open).toHaveBeenCalledWith(expect.stringMatching(/mic\.html$/), expect.any(String), expect.any(String));
+    expect(screen.getByText(/Cửa sổ micro đã mở/)).toBeInTheDocument();
+    fromMic({ type: 'hello' });
+    expect(toMic.at(-1)).toMatchObject({ type: 'welcome' });
+    fromMic({ type: 'ready', speech: true });
+    expect(toMic.at(-1)).toMatchObject({ type: 'say', text: expect.stringMatching(/full name/) });
+    fromMic({ type: 'state', state: 'listening' });
+    fromMic({ type: 'interim', text: 'My name is' });
+    expect(screen.getByText(/“My name is”/)).toBeInTheDocument();
+    fromMic({ type: 'answer', text: 'My name is Hoa', confidence: 0.9 });
+    expect(await screen.findByText(/Where are you from/)).toBeInTheDocument();
+    expect(reply.mock.calls[0][0].history).toEqual([{ role: 'user', content: 'My name is Hoa' }]);
+    expect(toMic.some((m) => m.type === 'thinking')).toBe(true);
+    expect(toMic.at(-1)).toMatchObject({ type: 'say', text: 'Thank you. Where are you from?' });
+  });
+
+  it('scores the session: four bands, overall and feedback', async () => {
+    localStorage.setItem(
+      'ielts-master:chat',
+      JSON.stringify({ examiner: [{ role: 'user', content: 'My name is Hoa.' }, { role: 'assistant', content: 'Where are you from?' }, { role: 'user', content: 'I am from Hue, a quiet city in the centre of Vietnam.' }, { role: 'assistant', content: 'Do you like it?' }] }),
+    );
+    sampleText.value = 'Here you go: {"bands":{"fc":6,"lr":6.5,"gra":5.5,"p":6},"comments":{"fc":"Steady.","lr":"Good range.","gra":"Some errors.","p":"Clear (estimate)."},"strengths":["Relevant answers"],"weaknesses":["Short answers"],"upgrades":[{"said":"a quiet city","better":"a laid-back city"}],"summary":"Hãy trả lời dài hơn."}';
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <AiChat />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Chấm điểm/ }));
+    const card = await screen.findByRole('region', { name: /speaking score/ });
+    expect(card).toHaveTextContent('6.0'); // (6 + 6.5 + 5.5 + 6) / 4 = 6
+    expect(card).toHaveTextContent(/laid-back city/);
+    expect(card).toHaveTextContent(/Hãy trả lời dài hơn/);
   });
 });
